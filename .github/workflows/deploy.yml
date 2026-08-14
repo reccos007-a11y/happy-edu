@@ -1,0 +1,129 @@
+name: Деплой на VPS
+
+on:
+  push:
+    branches: [main]
+  # Позволяет запустить деплой вручную из вкладки Actions, без коммита.
+  workflow_dispatch:
+
+# Два деплоя одновременно перетёрли бы файлы друг друга во время rsync.
+# Новый запуск ждёт завершения предыдущего, а не отменяет его на полпути.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://smartalise.ru
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Настроить SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          # Ключи передаём через переменные окружения: подстановка ${{ }} прямо
+          # в команду сломалась бы на спецсимволах и засветила бы ключ в логе.
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Проверить готовность сервера
+        env:
+          VPS: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+        run: |
+          # .env не хранится в репозитории и не переносится rsync'ом: без него
+          # backend не стартует, поэтому проверяем до того, как что-то менять.
+          ssh "$VPS" 'test -f /opt/happy-edu/.env' \
+            || { echo "::error::На сервере нет /opt/happy-edu/.env — деплой остановлен"; exit 1; }
+
+          free=$(ssh "$VPS" "df --output=avail -BM / | tail -1 | tr -dc '0-9'")
+          echo "Свободно на диске: ${free} МБ"
+          if [ "$free" -lt 700 ]; then
+            echo "::error::Меньше 700 МБ свободно — сборка образов не поместится"
+            exit 1
+          elif [ "$free" -lt 1500 ]; then
+            echo "::warning::Мало места на диске: ${free} МБ"
+          fi
+
+      - name: Синхронизировать код
+        env:
+          VPS: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+        run: |
+          rsync -az --delete \
+            --exclude node_modules --exclude dist --exclude .git \
+            --exclude .env --exclude .claude \
+            ./ "$VPS:/opt/happy-edu/"
+
+      - name: Пересобрать и перезапустить
+        env:
+          VPS: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+        run: |
+          ssh "$VPS" 'bash -euo pipefail -s' <<'REMOTE'
+            cd /opt/happy-edu
+            compose="docker compose -f docker-compose.prod.yml -p happy-edu"
+
+            $compose config >/dev/null
+
+            # Помечаем текущие образы, чтобы было к чему откатиться.
+            # При самом первом деплое образов ещё нет — это не ошибка.
+            for svc in backend frontend; do
+              if docker image inspect "happy-edu-$svc" >/dev/null 2>&1; then
+                docker tag "happy-edu-$svc" "happy-edu-$svc:previous"
+              fi
+            done
+
+            $compose build
+            # Без --force-recreate compose оставляет контейнер на старом образе,
+            # рапортуя "Running": новый код тогда просто не поедет.
+            $compose up -d --force-recreate
+
+            # Освобождаем место: кеш сборки старше недели на этом сервере уже не нужен.
+            docker builder prune -f --filter until=168h >/dev/null || true
+          REMOTE
+
+      - name: Проверить, что поднялся новый код
+        env:
+          VPS: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+        run: |
+          # Код возврата docker compose ничего не доказывает — сверяем образы
+          # и опрашиваем живой сайт снаружи.
+          ssh "$VPS" 'bash -euo pipefail -s' <<'REMOTE'
+            for svc in backend frontend; do
+              built=$(docker image inspect "happy-edu-$svc" --format '{{.Id}}')
+              running=$(docker inspect "happy-edu-$svc-1" --format '{{.Image}}')
+              if [ "$built" != "$running" ]; then
+                echo "::error::$svc работает на старом образе"
+                exit 1
+              fi
+              echo "$svc: контейнер на свежем образе"
+            done
+          REMOTE
+
+          # if вместо && — иначе первая же неудачная попытка уронила бы шаг
+          # из-за set -e, и повторов бы не было.
+          for i in $(seq 1 10); do
+            if body=$(curl -fsS --max-time 10 https://smartalise.ru/api/health); then
+              case "$body" in
+                *'"status":"ok"'*) echo "Health: $body"; exit 0 ;;
+              esac
+            fi
+            echo "Попытка $i: сайт ещё не отвечает как надо"
+            sleep 5
+          done
+          echo "::error::Сайт не отвечает после деплоя. Откат: ssh на сервер, docker tag happy-edu-<svc>:previous happy-edu-<svc>, затем docker compose -f docker-compose.prod.yml -p happy-edu up -d --force-recreate"
+          exit 1
+
+      - name: Логи при неудаче
+        if: failure()
+        env:
+          VPS: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+        run: |
+          ssh "$VPS" 'cd /opt/happy-edu && docker compose -f docker-compose.prod.yml -p happy-edu ps && docker compose -f docker-compose.prod.yml -p happy-edu logs --tail 50' || true

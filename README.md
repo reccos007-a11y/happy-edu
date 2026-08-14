@@ -162,7 +162,53 @@ docker compose -f docker-compose.prod.yml -p happy-edu logs -f
 docker compose -f docker-compose.prod.yml -p happy-edu up -d --build   # передеплой
 ```
 
-### Обновление кода с локальной машины
+### Автодеплой (GitHub Actions)
+
+Push в `main` автоматически выкатывает изменения на https://smartalise.ru —
+`.github/workflows/deploy.yml`. Его же можно запустить вручную из вкладки Actions
+(«Run workflow»), без коммита.
+
+Что делает workflow:
+
+1. проверяет, что на сервере есть `/opt/happy-edu/.env` и хватает места на диске
+   (меньше 700 МБ — деплой останавливается, не начав ломать рабочую версию);
+2. переносит код через `rsync` (без `.env`, `node_modules`, `dist`, `.git`);
+3. помечает текущие образы тегом `:previous` — это точка отката;
+4. пересобирает и поднимает контейнеры с `--force-recreate`;
+5. **проверяет результат**, а не код возврата: сверяет ID собранного образа с тем,
+   на котором реально работает контейнер, и опрашивает `https://smartalise.ru/api/health`
+   до 10 раз. Если что-то не так — шаг падает и печатает логи контейнеров.
+
+Одновременные деплои исключены (`concurrency`), иначе два `rsync` перетёрли бы
+файлы друг друга.
+
+Секреты репозитория (Settings → Secrets → Actions):
+
+| Секрет | Назначение |
+|---|---|
+| `VPS_SSH_KEY` | приватный ключ деплоя (пара к `~/.ssh/id_ed25519_happy_edu_ci`) |
+| `VPS_KNOWN_HOSTS` | host-ключи сервера, чтобы не отключать проверку хоста |
+| `VPS_HOST`, `VPS_USER` | адрес сервера и пользователь |
+
+Ключ деплоя — **отдельный** от личного: его можно отозвать, удалив строку
+`github-actions-deploy@happy-edu` из `/root/.ssh/authorized_keys` на сервере,
+не трогая свой доступ.
+
+**Откат** (автоматического нет — деплой только сообщает о провале):
+
+```bash
+ssh vps
+cd /opt/happy-edu
+docker tag happy-edu-backend:previous happy-edu-backend
+docker tag happy-edu-frontend:previous happy-edu-frontend
+docker compose -f docker-compose.prod.yml -p happy-edu up -d --force-recreate
+```
+
+Учтите: откат возвращает код, но **не откатывает схему БД** — `initSchema`
+только добавляет объекты, поэтому старый код с новой схемой обычно работает,
+но это стоит держать в голове при изменениях схемы.
+
+### Обновление кода с локальной машины (в обход CI)
 
 ```bash
 rsync -az --delete --exclude node_modules --exclude dist --exclude .git --exclude .env \
