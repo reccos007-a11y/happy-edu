@@ -29,13 +29,7 @@
 
         <v-alert v-if="error" type="error" density="compact" class="mt-4" :text="error" />
 
-        <v-btn
-          type="submit"
-          color="primary"
-          block
-          class="mt-4"
-          :loading="busy"
-        >
+        <v-btn type="submit" color="primary" block class="mt-4" :loading="busy">
           {{ mode === 'login' ? 'Войти' : 'Зарегистрироваться' }}
         </v-btn>
       </v-form>

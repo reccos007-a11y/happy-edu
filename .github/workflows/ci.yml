@@ -1,0 +1,89 @@
+name: Проверки
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Новый push в ту же ветку отменяет предыдущую проверку: держать в очереди
+# заведомо устаревший прогон незачем.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Линтер и форматирование
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - name: Проверить форматирование
+        run: npm run format:check
+
+  test:
+    name: Тесты backend
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        # Без healthcheck шаги начнутся раньше, чем БД примет соединения.
+        options: >-
+          --health-cmd "pg_isready -U app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+        working-directory: backend
+
+      - name: Прогнать тесты
+        working-directory: backend
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: app
+          DB_PASSWORD: app
+          DB_NAME: app
+          # Секрет только для тестов, в проде значение приходит из .env на сервере.
+          JWT_SECRET: test_secret_for_ci_only
+        run: npm test
+
+  build:
+    name: Сборка образов
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Собираем ровно то, что уедет на сервер: если Dockerfile сломан или
+      # package-lock разошёлся с package.json, npm ci упадёт именно здесь,
+      # а не во время деплоя.
+      - name: Собрать backend
+        run: docker build -t happy-edu-backend:ci ./backend
+
+      - name: Собрать frontend
+        run: docker build -t happy-edu-frontend:ci ./frontend

@@ -1,37 +1,40 @@
-# Test Project
+# happy-edu
 
 Заготовка сайта: Node.js (Express) + PostgreSQL + Vue 3 (Vuetify), всё в Docker.
+Работает на https://smartalise.ru.
+
+Как включиться в разработку — [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Авторизация
 
 E-mail + пароль, сессия в httpOnly cookie.
 
-| Метод | Эндпоинт | Назначение |
-|---|---|---|
-| POST | `/api/auth/register` | регистрация, сразу выдаёт сессию |
-| POST | `/api/auth/login` | вход |
-| POST | `/api/auth/logout` | выход, сбрасывает cookie |
-| GET | `/api/auth/me` | текущий пользователь либо 401 |
+| Метод | Эндпоинт             | Назначение                       |
+| ----- | -------------------- | -------------------------------- |
+| POST  | `/api/auth/register` | регистрация, сразу выдаёт сессию |
+| POST  | `/api/auth/login`    | вход                             |
+| POST  | `/api/auth/logout`   | выход, сбрасывает cookie         |
+| GET   | `/api/auth/me`       | текущий пользователь либо 401    |
 
 ## Роли и права
 
 Две роли, заданные в `backend/src/roles.js` — единственном месте, откуда их берут
 и схема БД, и проверки доступа:
 
-| Роль | Права |
-|---|---|
-| `user` | нет (по умолчанию у всех, кто зарегистрировался) |
+| Роль    | Права                                                            |
+| ------- | ---------------------------------------------------------------- |
+| `user`  | нет (по умолчанию у всех, кто зарегистрировался)                 |
 | `admin` | `users:read`, `users:write`, `roles:manage` — максимальный набор |
 
 Администратор получает все права из `PERMISSIONS`, включая те, что появятся
 позже: новое право достаточно добавить в этот объект.
 
-| Метод | Эндпоинт | Требуемое право |
-|---|---|---|
-| GET | `/api/admin/roles` | `users:read` |
-| GET | `/api/admin/users` | `users:read` |
-| PATCH | `/api/admin/users/:id/role` | `roles:manage` |
-| DELETE | `/api/admin/users/:id` | `users:write` |
+| Метод  | Эндпоинт                    | Требуемое право |
+| ------ | --------------------------- | --------------- |
+| GET    | `/api/admin/roles`          | `users:read`    |
+| GET    | `/api/admin/users`          | `users:read`    |
+| PATCH  | `/api/admin/users/:id/role` | `roles:manage`  |
+| DELETE | `/api/admin/users/:id`      | `users:write`   |
 
 Принятые решения:
 
@@ -86,17 +89,49 @@ docker compose exec -e ADMIN_PASSWORD='...' backend node src/create-admin.js adm
   `users_email_lower_idx` по `lower(email)`.
 - **Неверный пароль и несуществующий пользователь** дают одинаковый ответ 401,
   чтобы перебором нельзя было выяснить зарегистрированные адреса.
-- **Схема** создаётся при старте backend (`src/schema.js`), идемпотентно.
-  Для нетривиальных изменений схемы понадобится инструмент миграций.
+- **Схема БД** описана миграциями в `backend/migrations/*.sql`, они применяются
+  при старте backend (см. раздел «Миграции»).
 
 `JWT_SECRET` обязателен — без него backend не стартует. Генерация:
 `openssl rand -base64 48`. Смена секрета инвалидирует все активные сессии.
 
+## Миграции
+
+Схема БД описана SQL-файлами в `backend/migrations/`, они применяются по порядку
+имён при старте backend и каждый ровно один раз — применённые записаны в таблице
+`schema_migrations`. Раннер — `backend/src/migrate.js`; он берёт advisory lock,
+поэтому при нескольких экземплярах backend миграции применит только один.
+
+Взят простой раннер на чистом SQL, а не библиотека миграций: видно, что именно
+уйдёт в базу, и не нужно осваивать отдельный формат описания. Обратных миграций
+нет намеренно — откат делается новым файлом.
+
+```bash
+docker compose exec backend npm run migrate   # применить вручную
+```
+
+Правила работы с миграциями в командной разработке — в
+[CONTRIBUTING.md](CONTRIBUTING.md#изменения-схемы-бд).
+
 ## Структура
 
 - `backend/` — Express API, health-check `/api/health`, подключение к Postgres через `pg`
-- `frontend/` — Vue 3 + Vite + Vuetify, тестовая страничка, обращается к `/api/health`
+  - `backend/migrations/` — SQL-миграции схемы
+  - `backend/test/` — тесты на встроенном `node:test`, идут против настоящего Postgres
+- `frontend/` — Vue 3 + Vite + Vuetify, форма входа и админ-панель
 - `docker-compose.yml` — postgres + backend + frontend (nginx, отдаёт статику и проксирует `/api` на backend)
+- `.github/workflows/` — проверки на pull request (`ci.yml`) и автодеплой (`deploy.yml`)
+- в корне — ESLint, Prettier и `.editorconfig`, общие для backend и frontend
+
+## Проверки
+
+```bash
+npm ci && npm run lint && npm run format:check   # в корне репозитория
+docker compose exec backend npm test             # тесты backend
+```
+
+Те же три проверки — линтер, тесты и сборка образов — выполняются на каждый
+pull request (`.github/workflows/ci.yml`).
 
 ## Запуск локально
 
@@ -120,7 +155,7 @@ docker compose up --build
 
 ### Важно про этот сервер
 
-На сервере уже работают три других проекта (`eurtx`, `dosifeya`, `smarthome`) за общим
+На сервере уже работают другие проекты (`eurtx`, `smarthome`) за общим
 реверс-прокси Caddy, который занимает порты 80 и 443. Поэтому:
 
 - используется отдельный compose-проект `happy-edu`;
@@ -164,9 +199,14 @@ docker compose -f docker-compose.prod.yml -p happy-edu up -d --build   # пер�
 
 ### Автодеплой (GitHub Actions)
 
-Push в `main` автоматически выкатывает изменения на https://smartalise.ru —
-`.github/workflows/deploy.yml`. Его же можно запустить вручную из вкладки Actions
-(«Run workflow»), без коммита.
+Изменения, попавшие в `main`, автоматически выкатываются на https://smartalise.ru —
+`.github/workflows/deploy.yml`. Деплой запускается **не по самому push**, а после
+успешного завершения workflow «Проверки» на этом коммите: код с красными тестами
+на сервер не уезжает. Деплоится именно проверенный коммит (`workflow_run.head_sha`),
+а не текущая вершина ветки.
+
+Запустить вручную можно из вкладки Actions («Run workflow») — тогда проверки
+не учитываются.
 
 Что делает workflow:
 
@@ -184,11 +224,11 @@ Push в `main` автоматически выкатывает изменени�
 
 Секреты репозитория (Settings → Secrets → Actions):
 
-| Секрет | Назначение |
-|---|---|
-| `VPS_SSH_KEY` | приватный ключ деплоя (пара к `~/.ssh/id_ed25519_happy_edu_ci`) |
-| `VPS_KNOWN_HOSTS` | host-ключи сервера, чтобы не отключать проверку хоста |
-| `VPS_HOST`, `VPS_USER` | адрес сервера и пользователь |
+| Секрет                 | Назначение                                                      |
+| ---------------------- | --------------------------------------------------------------- |
+| `VPS_SSH_KEY`          | приватный ключ деплоя (пара к `~/.ssh/id_ed25519_happy_edu_ci`) |
+| `VPS_KNOWN_HOSTS`      | host-ключи сервера, чтобы не отключать проверку хоста           |
+| `VPS_HOST`, `VPS_USER` | адрес сервера и пользователь                                    |
 
 Ключ деплоя — **отдельный** от личного: его можно отозвать, удалив строку
 `github-actions-deploy@happy-edu` из `/root/.ssh/authorized_keys` на сервере,

@@ -1,0 +1,21 @@
+{
+  "name": "happy-edu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Инструменты разработки для всего репозитория: линтер и форматтер. Сам код живёт в backend/ и frontend/.",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "eslint": "^9.9.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-vue": "^9.27.0",
+    "globals": "^15.9.0",
+    "prettier": "^3.3.3"
+  }
+}

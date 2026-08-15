@@ -13,9 +13,9 @@
         <thead>
           <tr>
             <th class="text-left">E-mail</th>
-            <th class="text-left" style="width: 160px;">Роль</th>
+            <th class="text-left" style="width: 160px">Роль</th>
             <th class="text-left">Создан</th>
-            <th style="width: 56px;"></th>
+            <th style="width: 56px"></th>
           </tr>
         </thead>
         <tbody>
@@ -65,7 +65,12 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="deleteDialog = false">Отмена</v-btn>
-          <v-btn color="error" variant="tonal" :loading="busyId === pendingDelete?.id" @click="doDelete">
+          <v-btn
+            color="error"
+            variant="tonal"
+            :loading="busyId === pendingDelete?.id"
+            @click="doDelete"
+          >
             Удалить
           </v-btn>
         </v-card-actions>

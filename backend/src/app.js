@@ -1,0 +1,35 @@
+// Сборка Express-приложения без запуска сервера: index.js слушает порт,
+// а тесты поднимают то же приложение на произвольном порту.
+
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import express from 'express';
+import { adminRouter } from './admin.js';
+import { authRouter } from './auth.js';
+import { pool } from './db.js';
+
+export function createApp() {
+  const app = express();
+
+  app.use(cors({ origin: true, credentials: true }));
+  app.use(express.json());
+  app.use(cookieParser());
+
+  app.get('/api/health', async (_req, res) => {
+    try {
+      await pool.query('SELECT 1');
+      res.json({ status: 'ok', db: 'connected' });
+    } catch (err) {
+      res.status(500).json({ status: 'error', db: 'disconnected', error: err.message });
+    }
+  });
+
+  app.get('/api/hello', (_req, res) => {
+    res.json({ message: 'Hello from backend' });
+  });
+
+  app.use('/api/auth', authRouter);
+  app.use('/api/admin', adminRouter);
+
+  return app;
+}

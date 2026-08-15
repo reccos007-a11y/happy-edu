@@ -10,9 +10,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       # Только localhost: Docker обходит ufw, поэтому "5432:5432" открыл бы БД в интернет.
-      - "127.0.0.1:5432:5432"
+      - '127.0.0.1:5432:5432'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-app}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-app}']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -30,12 +30,12 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev_secret_not_for_production}
       # Локально сайт по http://localhost, поэтому Secure на cookie не ставим —
       # иначе браузер её не сохранит.
-      COOKIE_SECURE: "false"
+      COOKIE_SECURE: 'false'
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3000:3000"
+      - '127.0.0.1:3000:3000'
 
   frontend:
     build: ./frontend
@@ -43,7 +43,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:8080:80"
+      - '127.0.0.1:8080:80'
 
 volumes:
   postgres_data:

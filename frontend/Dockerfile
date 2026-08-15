@@ -1,14 +1,15 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-COPY package*.json ./
+COPY package.json package-lock.json ./
 # Крупные пакеты (@mdi/font ~50 МБ) на нестабильной сети рвутся с ECONNRESET.
 # Повторные попытки и меньше параллельных сокетов делают установку устойчивой.
+# npm ci вместо install: версии берутся строго из package-lock.json.
 RUN npm config set fetch-retries 5 \
  && npm config set fetch-retry-mintimeout 20000 \
  && npm config set fetch-retry-maxtimeout 120000 \
  && npm config set fetch-timeout 600000 \
- && npm install --no-audit --no-fund --maxsockets 3
+ && npm ci --no-audit --no-fund --maxsockets 3
 
 COPY . .
 RUN npm run build
