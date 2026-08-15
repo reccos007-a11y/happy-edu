@@ -33,8 +33,8 @@ adminRouter.get('/users', requirePermission(PERMISSIONS.USERS_READ), async (_req
   }
 });
 
-// Заведение учётной записи администратором — для случаев, когда пользователь
-// не регистрируется сам: сотрудников заводят вручную.
+// Заведение учётной записи администратором — единственный способ появиться
+// новому пользователю: публичной регистрации на сайте нет.
 adminRouter.post('/users', requirePermission(PERMISSIONS.USERS_WRITE), async (req, res) => {
   const { email, role = DEFAULT_ROLE } = req.body ?? {};
 
