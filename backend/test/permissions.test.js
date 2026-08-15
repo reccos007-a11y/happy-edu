@@ -81,6 +81,19 @@ describe('доступ к админскому разделу', () => {
     assert.equal(status, 403);
   });
 
+  it('обычный пользователь не может завести учётную запись', async () => {
+    const call = makeClient(base);
+    await createUser('user@example.com', 'password123');
+    await call('POST', '/api/auth/login', { email: 'user@example.com', password: 'password123' });
+
+    const { status } = await call('POST', '/api/admin/users', {
+      email: 'created-by-user@example.com',
+      password: 'password123',
+    });
+
+    assert.equal(status, 403);
+  });
+
   it('администратор получает список пользователей и полный набор прав', async () => {
     const call = makeClient(base);
     await createUser('admin@example.com', 'password123', 'admin');
@@ -155,6 +168,60 @@ describe('управление ролями', () => {
 
     assert.equal((await call('DELETE', `/api/admin/users/${user.id}`)).status, 200);
     assert.equal((await call('DELETE', `/api/admin/users/${admin.id}`)).status, 400);
+  });
+
+  it('администратор заводит пользователя и получает сгенерированный пароль', async () => {
+    const { status, data } = await call('POST', '/api/admin/users', {
+      email: 'new@example.com',
+      role: 'user',
+    });
+
+    assert.equal(status, 201);
+    assert.equal(data.user.role, 'user');
+    assert.ok(data.generatedPassword, 'пароль должен быть показан один раз');
+
+    // Заведённая учётная запись должна работать: входим ей с выданным паролем.
+    const fresh = makeClient(base);
+    const login = await fresh('POST', '/api/auth/login', {
+      email: 'new@example.com',
+      password: data.generatedPassword,
+    });
+    assert.equal(login.status, 200);
+  });
+
+  it('заданный администратором пароль обратно не возвращается', async () => {
+    const { status, data } = await call('POST', '/api/admin/users', {
+      email: 'manual@example.com',
+      password: 'chosen-password',
+    });
+
+    assert.equal(status, 201);
+    assert.equal(data.generatedPassword, undefined);
+  });
+
+  it('повторный e-mail отклоняется', async () => {
+    await createUser('taken@example.com', 'password123');
+
+    const { status } = await call('POST', '/api/admin/users', {
+      email: 'TAKEN@example.com',
+      password: 'password123',
+    });
+
+    assert.equal(status, 409);
+  });
+
+  it('короткий пароль и кривой e-mail отклоняются', async () => {
+    const short = await call('POST', '/api/admin/users', {
+      email: 'ok@example.com',
+      password: 'short',
+    });
+    const bad = await call('POST', '/api/admin/users', {
+      email: 'не-почта',
+      password: 'password123',
+    });
+
+    assert.equal(short.status, 400);
+    assert.equal(bad.status, 400);
   });
 
   it('последнего администратора нельзя понизить даже при гонке', async () => {

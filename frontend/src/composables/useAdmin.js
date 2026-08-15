@@ -31,6 +31,21 @@ export function useAdmin() {
     }
   }
 
+  // Пароль можно не передавать — сервер сгенерирует его и вернёт один раз.
+  async function addUser({ email, password, role }) {
+    error.value = '';
+    try {
+      const body = { email, role };
+      if (password) body.password = password;
+      const data = await api('/users', { method: 'POST', body: JSON.stringify(body) });
+      users.value.push(data.user);
+      return data;
+    } catch (e) {
+      error.value = e.message;
+      return null;
+    }
+  }
+
   async function setRole(id, role) {
     error.value = '';
     try {
@@ -62,5 +77,5 @@ export function useAdmin() {
     }
   }
 
-  return { users, loading, error, loadUsers, setRole, removeUser };
+  return { users, loading, error, loadUsers, addUser, setRole, removeUser };
 }

@@ -3,6 +3,9 @@
     <v-card-title class="d-flex align-center">
       Пользователи
       <v-spacer />
+      <v-btn variant="tonal" size="small" color="primary" class="mr-2" @click="openCreate">
+        Добавить
+      </v-btn>
       <v-btn variant="text" size="small" :loading="loading" @click="loadUsers">Обновить</v-btn>
     </v-card-title>
 
@@ -56,6 +59,80 @@
       </p>
     </v-card-text>
 
+    <v-dialog v-model="createDialog" max-width="480" @update:model-value="onCreateDialogToggle">
+      <v-card>
+        <v-card-title class="text-h6">Новый пользователь</v-card-title>
+
+        <v-card-text>
+          <v-alert
+            v-if="createError"
+            type="error"
+            density="compact"
+            class="mb-4"
+            :text="createError"
+          />
+
+          <template v-if="issuedPassword">
+            <p class="mb-2">
+              Учётная запись <strong>{{ createdEmail }}</strong> создана.
+            </p>
+            <v-text-field
+              :model-value="issuedPassword"
+              label="Пароль"
+              readonly
+              variant="outlined"
+              density="comfortable"
+              hint="Показывается один раз — сохраните и передайте пользователю"
+              persistent-hint
+            />
+          </template>
+
+          <v-form v-else @submit.prevent="submitCreate">
+            <v-text-field
+              v-model="form.email"
+              label="E-mail"
+              type="email"
+              variant="outlined"
+              density="comfortable"
+              :disabled="creating"
+            />
+            <v-text-field
+              v-model="form.password"
+              label="Пароль"
+              type="text"
+              variant="outlined"
+              density="comfortable"
+              hint="Оставьте пустым — сервер сгенерирует пароль и покажет его один раз"
+              persistent-hint
+              :disabled="creating"
+            />
+            <v-select
+              v-model="form.role"
+              :items="roleItems"
+              label="Роль"
+              variant="outlined"
+              density="comfortable"
+              class="mt-4"
+              :disabled="creating"
+            />
+          </v-form>
+        </v-card-text>
+
+        <v-card-actions>
+          <v-spacer />
+          <template v-if="issuedPassword">
+            <v-btn color="primary" variant="tonal" @click="createDialog = false">Готово</v-btn>
+          </template>
+          <template v-else>
+            <v-btn variant="text" :disabled="creating" @click="createDialog = false">Отмена</v-btn>
+            <v-btn color="primary" variant="tonal" :loading="creating" @click="submitCreate">
+              Создать
+            </v-btn>
+          </template>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="deleteDialog" max-width="420">
       <v-card>
         <v-card-title class="text-h6">Удалить пользователя?</v-card-title>
@@ -85,7 +162,7 @@ import { useAdmin } from '../composables/useAdmin';
 import { useAuth } from '../composables/useAuth';
 
 const { user } = useAuth();
-const { users, loading, error, loadUsers, setRole, removeUser } = useAdmin();
+const { users, loading, error, loadUsers, addUser, setRole, removeUser } = useAdmin();
 
 const currentUserId = computed(() => user.value?.id);
 const roleItems = [
@@ -96,6 +173,47 @@ const roleItems = [
 const busyId = ref(null);
 const deleteDialog = ref(false);
 const pendingDelete = ref(null);
+
+const createDialog = ref(false);
+const creating = ref(false);
+const createError = ref('');
+const issuedPassword = ref('');
+const createdEmail = ref('');
+const form = ref({ email: '', password: '', role: 'user' });
+
+function openCreate() {
+  form.value = { email: '', password: '', role: 'user' };
+  createError.value = '';
+  issuedPassword.value = '';
+  createdEmail.value = '';
+  createDialog.value = true;
+}
+
+// Пароль показывается только пока открыт диалог: в базе лежит лишь хеш,
+// второй раз его взять неоткуда.
+function onCreateDialogToggle(open) {
+  if (!open) issuedPassword.value = '';
+}
+
+async function submitCreate() {
+  creating.value = true;
+  createError.value = '';
+  try {
+    const result = await addUser(form.value);
+    if (!result) {
+      createError.value = error.value;
+      return;
+    }
+    createdEmail.value = result.user.email;
+    if (result.generatedPassword) {
+      issuedPassword.value = result.generatedPassword;
+    } else {
+      createDialog.value = false;
+    }
+  } finally {
+    creating.value = false;
+  }
+}
 
 async function changeRole(target, role) {
   if (role === target.role) return;

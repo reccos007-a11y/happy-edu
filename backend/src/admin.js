@@ -1,7 +1,15 @@
 import express from 'express';
-import { publicUser, requireAuth, requirePermission } from './auth.js';
+import { publicUser, requireAuth, requirePermission, validate } from './auth.js';
 import { pool } from './db.js';
-import { ADMIN_ROLE, PERMISSIONS, ROLES, isValidRole } from './roles.js';
+import { generatePassword, hashPassword } from './password.js';
+import {
+  ADMIN_ROLE,
+  DEFAULT_ROLE,
+  PERMISSIONS,
+  ROLES,
+  hasPermission,
+  isValidRole,
+} from './roles.js';
 
 export const adminRouter = express.Router();
 
@@ -21,6 +29,46 @@ adminRouter.get('/users', requirePermission(PERMISSIONS.USERS_READ), async (_req
     res.json({ users: rows.map(publicUser) });
   } catch (err) {
     console.error('admin list users failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+// Заведение учётной записи администратором — для случаев, когда пользователь
+// не регистрируется сам: сотрудников заводят вручную.
+adminRouter.post('/users', requirePermission(PERMISSIONS.USERS_WRITE), async (req, res) => {
+  const { email, role = DEFAULT_ROLE } = req.body ?? {};
+
+  // Пароль необязателен: если его не задали, генерируем и показываем один раз.
+  const generated = !req.body?.password;
+  const password = generated ? generatePassword() : req.body.password;
+
+  const error = validate(email, password);
+  if (error) return res.status(400).json({ error });
+  if (!isValidRole(role)) return res.status(400).json({ error: 'Неизвестная роль' });
+
+  // Раздавать администраторские права — отдельное право: users:write позволяет
+  // завести обычного пользователя, но не создать себе второго администратора.
+  if (role === ADMIN_ROLE && !hasPermission(req.user.role, PERMISSIONS.ROLES_MANAGE)) {
+    return res.status(403).json({ error: 'Недостаточно прав для создания администратора' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id, email, role, created_at',
+      [email.trim().toLowerCase(), await hashPassword(password), role],
+    );
+
+    // Сгенерированный пароль возвращается единственный раз — в базе только хеш,
+    // показать его повторно будет неоткуда.
+    res.status(201).json({
+      user: publicUser(rows[0]),
+      generatedPassword: generated ? password : undefined,
+    });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Пользователь с таким e-mail уже существует' });
+    }
+    console.error('admin create user failed:', err);
     res.status(500).json({ error: 'Внутренняя ошибка' });
   }
 });
