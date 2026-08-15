@@ -29,13 +29,13 @@ E-mail + пароль, сессия в httpOnly cookie.
 Администратор получает все права из `PERMISSIONS`, включая те, что появятся
 позже: новое право достаточно добавить в этот объект.
 
-| Метод  | Эндпоинт                    | Требуемое право                          |
-| ------ | --------------------------- | ---------------------------------------- |
-| GET    | `/api/admin/roles`          | `users:read`                             |
-| GET    | `/api/admin/users`          | `users:read`                             |
+| Метод  | Эндпоинт                    | Требуемое право                                  |
+| ------ | --------------------------- | ------------------------------------------------ |
+| GET    | `/api/admin/roles`          | `users:read`                                     |
+| GET    | `/api/admin/users`          | `users:read`                                     |
 | POST   | `/api/admin/users`          | `users:write` (+ `roles:manage` на роль `admin`) |
-| PATCH  | `/api/admin/users/:id/role` | `roles:manage`                           |
-| DELETE | `/api/admin/users/:id`      | `users:write`                            |
+| PATCH  | `/api/admin/users/:id/role` | `roles:manage`                                   |
+| DELETE | `/api/admin/users/:id`      | `users:write`                                    |
 
 ### Заведение пользователей администратором
 
@@ -69,8 +69,7 @@ E-mail + пароль, сессия в httpOnly cookie.
 администратор заводится из командной строки:
 
 ```bash
-# на сервере
-cd /opt/happy-edu
+# на сервере, из директории проекта
 docker compose -f docker-compose.prod.yml -p happy-edu exec backend \
   node src/create-admin.js admin@example.com
 
@@ -88,7 +87,8 @@ docker compose exec -e ADMIN_PASSWORD='...' backend node src/create-admin.js adm
 
 Скрипт идемпотентен: если пользователь уже существует, он повышается до
 администратора, а пароль меняется только когда передан явно. Дальше роли
-раздаются через админ-панель на сайте.
+раздаются через админ-панель на сайте, и командная строка больше не нужна:
+там же заводятся новые пользователи.
 
 Принятые решения:
 
