@@ -146,55 +146,31 @@ docker compose up --build
 
 ## Деплой
 
-Развёрнуто на VPS `159.194.214.11` (Ubuntu 24.04), директория `/opt/happy-edu`.
+Проект развёрнут на VPS и открыт по адресу https://smartalise.ru.
 
-**Открыто:** https://smartalise.ru (и `www.smartalise.ru`)
+Как это устроено:
 
-Контейнеры не публикуют портов на хост вообще — снаружи проект доступен только
-через Caddy по HTTPS. Наружу на сервере слушают лишь 22 (SSH), 80 и 443 (Caddy).
+- **Контейнеры не публикуют портов на хост.** Postgres и backend доступны только
+  внутри сети compose-проекта, снаружи открыт лишь frontend — и то через
+  реверс-прокси.
+- **Наружу смотрит общий Caddy**, который занимает 80 и 443 и терминирует HTTPS.
+  Frontend подключён к его сети с алиасом `happy-edu-frontend`, на который Caddy
+  и проксирует домен. Сертификат Let's Encrypt выпускается и продлевается
+  автоматически.
+- **Отдельный compose-проект** `happy-edu`: на том же сервере работают другие
+  приложения, и они не должны задевать друг друга.
 
-### Важно про этот сервер
-
-На сервере уже работают другие проекты (`eurtx`, `smarthome`) за общим
-реверс-прокси Caddy, который занимает порты 80 и 443. Поэтому:
-
-- используется отдельный compose-проект `happy-edu`;
-- `docker-compose.prod.yml` **не публикует** порты postgres и backend наружу — они доступны
-  только внутри сети `happy-edu_default`;
-- контейнеры остальных проектов не затрагиваются.
-
-### Как подключён домен
-
-DNS домена управляется Beget, A-записи `smartalise.ru` и `www.smartalise.ru` указывают
-на 159.194.214.11.
-
-Frontend подключён к внешней сети `web` (её создаёт проект `smarthome`) с алиасом
-`happy-edu-frontend`. В `/opt/smarthome/Caddyfile` добавлен блок:
-
-```
-smartalise.ru, www.smartalise.ru {
-	encode gzip
-	reverse_proxy happy-edu-frontend:80
-}
-```
-
-Сертификат Let's Encrypt Caddy выпускает и продлевает сам. Бэкапы Caddyfile лежат
-рядом как `Caddyfile.bak.<timestamp>`.
-
-После правки Caddyfile применять так (сначала проверка, потом reload без простоя):
-
-```bash
-docker exec smarthome-caddy-1 caddy validate --config /etc/caddy/Caddyfile
-docker exec smarthome-caddy-1 caddy reload  --config /etc/caddy/Caddyfile
-```
+Конкретный адрес сервера, пользователь и SSH-ключ хранятся в секретах
+репозитория и в конфигурации деплоя — в коде и документации их нет.
 
 ### Команды на сервере
 
+Из директории проекта:
+
 ```bash
-cd /opt/happy-edu
 docker compose -f docker-compose.prod.yml -p happy-edu ps
 docker compose -f docker-compose.prod.yml -p happy-edu logs -f
-docker compose -f docker-compose.prod.yml -p happy-edu up -d --build   # передеплой
+docker compose -f docker-compose.prod.yml -p happy-edu up -d --build   # передеплой вручную
 ```
 
 ### Автодеплой (GitHub Actions)
@@ -230,35 +206,19 @@ docker compose -f docker-compose.prod.yml -p happy-edu up -d --build   # пер�
 | `VPS_KNOWN_HOSTS`      | host-ключи сервера, чтобы не отключать проверку хоста           |
 | `VPS_HOST`, `VPS_USER` | адрес сервера и пользователь                                    |
 
-Ключ деплоя — **отдельный** от личного: его можно отозвать, удалив строку
-`github-actions-deploy@happy-edu` из `/root/.ssh/authorized_keys` на сервере,
-не трогая свой доступ.
+Ключ деплоя — **отдельный** от личного: его можно отозвать, удалив
+соответствующую строку из `authorized_keys` на сервере, не трогая свой доступ.
 
-**Откат** (автоматического нет — деплой только сообщает о провале):
+**Откат** (автоматического нет — деплой только сообщает о провале). На сервере,
+в директории проекта:
 
 ```bash
-ssh vps
-cd /opt/happy-edu
 docker tag happy-edu-backend:previous happy-edu-backend
 docker tag happy-edu-frontend:previous happy-edu-frontend
 docker compose -f docker-compose.prod.yml -p happy-edu up -d --force-recreate
 ```
 
-Учтите: откат возвращает код, но **не откатывает схему БД** — `initSchema`
-только добавляет объекты, поэтому старый код с новой схемой обычно работает,
-но это стоит держать в голове при изменениях схемы.
-
-### Обновление кода с локальной машины (в обход CI)
-
-```bash
-rsync -az --delete --exclude node_modules --exclude dist --exclude .git --exclude .env \
-  ~/Projects/happy-edu/ vps:/opt/happy-edu/
-ssh vps "cd /opt/happy-edu && docker compose -f docker-compose.prod.yml -p happy-edu up -d --build"
-```
-
-Алиас `vps` настроен в `~/.ssh/config` (ключ `~/.ssh/id_ed25519_vps`).
-
-### Если понадобится домен и HTTPS
-
-Добавить блок в `/opt/smarthome/Caddyfile`, подключить frontend к внешней сети `web`
-и убрать публикацию порта 8080. Caddy сам выпустит сертификат Let's Encrypt.
+Откат возвращает код, но **не откатывает схему БД**: миграции только добавляют
+объекты, поэтому старый код с новой схемой обычно работает. При изменениях,
+которые удаляют или переименовывают что-то в схеме, это перестанет быть верным —
+такие миграции стоит разбивать на шаги, совместимые с предыдущей версией кода.

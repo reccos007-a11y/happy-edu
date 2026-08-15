@@ -22,7 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     # Ручной запуск деплоит без оглядки на проверки, автоматический — только
     # после их успеха. Иначе упавшие тесты всё равно привели бы к выкатке.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    #
+    # head_repository сверяется отдельно: репозиторий публичный, и без этой
+    # проверки прогон «Проверок» на ветке из чужого форка мог бы дотянуться
+    # до секретов деплоя. Ветка main в форке — обычное дело.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) }}
     environment:
       name: production
       url: https://smartalise.ru
