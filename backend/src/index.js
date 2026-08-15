@@ -1,41 +1,17 @@
-import cookieParser from 'cookie-parser';
-import cors from 'cors';
-import express from 'express';
-import { adminRouter } from './admin.js';
-import { authRouter } from './auth.js';
-import { pool } from './db.js';
-import { initSchema } from './schema.js';
+import { createApp } from './app.js';
+import { runMigrations } from './migrate.js';
 
-const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
-app.use(cookieParser());
-
-app.get('/api/health', async (_req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ status: 'ok', db: 'connected' });
-  } catch (err) {
-    res.status(500).json({ status: 'error', db: 'disconnected', error: err.message });
-  }
-});
-
-app.get('/api/hello', (_req, res) => {
-  res.json({ message: 'Hello from backend' });
-});
-
-app.use('/api/auth', authRouter);
-app.use('/api/admin', adminRouter);
-
-initSchema()
+// Миграции применяются до того, как сервер начнёт принимать запросы: иначе
+// первые запросы пришли бы на схему, которой ещё нет.
+runMigrations()
   .then(() => {
-    app.listen(port, () => {
+    createApp().listen(port, () => {
       console.log(`Backend listening on port ${port}`);
     });
   })
   .catch((err) => {
-    console.error('Не удалось инициализировать схему БД:', err);
+    console.error('Не удалось применить миграции:', err);
     process.exit(1);
   });

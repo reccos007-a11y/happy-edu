@@ -14,7 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { pool } from './db.js';
 import { hashPassword } from './password.js';
 import { ADMIN_ROLE } from './roles.js';
-import { initSchema } from './schema.js';
+import { runMigrations } from './migrate.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD = 8;
@@ -43,7 +43,7 @@ async function main() {
     return;
   }
 
-  await initSchema();
+  await runMigrations();
 
   const { rows: existing } = await pool.query(
     'SELECT id, email, role FROM users WHERE lower(email) = $1',
@@ -61,10 +61,7 @@ async function main() {
     }
     values.push(user.id);
 
-    await pool.query(
-      `UPDATE users SET ${fields.join(', ')} WHERE id = $${values.length}`,
-      values,
-    );
+    await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${values.length}`, values);
 
     const wasAdmin = user.role === ADMIN_ROLE;
     console.log(

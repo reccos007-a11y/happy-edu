@@ -14,7 +14,7 @@
     </v-app-bar>
 
     <v-main>
-      <v-container class="d-flex flex-column align-center justify-center" style="min-height: 80vh;">
+      <v-container class="d-flex flex-column align-center justify-center" style="min-height: 80vh">
         <v-progress-circular v-if="loading" indeterminate color="primary" />
 
         <template v-else-if="user">
@@ -29,7 +29,7 @@
             </v-card-text>
           </v-card>
 
-          <AdminPanel v-if="isAdmin" class="mt-8" style="width: 100%; max-width: 860px;" />
+          <AdminPanel v-if="isAdmin" class="mt-8" style="width: 100%; max-width: 860px" />
         </template>
 
         <AuthCard v-else />

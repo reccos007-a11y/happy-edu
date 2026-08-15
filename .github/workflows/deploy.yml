@@ -1,7 +1,12 @@
 name: Деплой на VPS
 
 on:
-  push:
+  # Деплой идёт не по самому push в main, а только после того, как workflow
+  # «Проверки» на этом коммите завершился успешно: на сервер не должен
+  # уезжать код с красными тестами.
+  workflow_run:
+    workflows: ['Проверки']
+    types: [completed]
     branches: [main]
   # Позволяет запустить деплой вручную из вкладки Actions, без коммита.
   workflow_dispatch:
@@ -15,12 +20,19 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Ручной запуск деплоит без оглядки на проверки, автоматический — только
+    # после их успеха. Иначе упавшие тесты всё равно привели бы к выкатке.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: production
       url: https://smartalise.ru
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_run по умолчанию берёт вершину main, а не тот коммит,
+          # который проверялся. Явно деплоим именно проверенный код.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Настроить SSH
         env:
