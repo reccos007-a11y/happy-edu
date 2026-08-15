@@ -34,14 +34,6 @@ export function useAuth() {
     }
   }
 
-  async function register(email, password) {
-    const { user: me } = await api('/register', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    user.value = me;
-  }
-
   async function login(email, password) {
     const { user: me } = await api('/login', {
       method: 'POST',
@@ -61,7 +53,6 @@ export function useAuth() {
     isAdmin,
     can,
     refresh,
-    register,
     login,
     logout,
   };

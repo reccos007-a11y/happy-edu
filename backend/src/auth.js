@@ -1,7 +1,7 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { pool } from './db.js';
-import { hashPassword, verifyPassword } from './password.js';
+import { verifyPassword } from './password.js';
 import { hasPermission, permissionsOf } from './roles.js';
 
 export const COOKIE_NAME = 'session';
@@ -104,32 +104,10 @@ export function requirePermission(permission) {
 
 export const authRouter = express.Router();
 
-authRouter.post('/register', async (req, res) => {
-  const { email, password } = req.body ?? {};
-  const error = validate(email, password);
-  if (error) return res.status(400).json({ error });
-
-  const normalized = email.trim().toLowerCase();
-
-  try {
-    const hash = await hashPassword(password);
-    // Роль не берётся из тела запроса — иначе любой мог бы зарегистрироваться
-    // администратором. Повышение прав возможно только через /api/admin или CLI.
-    const { rows } = await pool.query(
-      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, role, created_at',
-      [normalized, hash],
-    );
-    issueToken(res, rows[0]);
-    res.status(201).json({ user: publicUser(rows[0]) });
-  } catch (err) {
-    // 23505 — нарушение уникального индекса по email.
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'Пользователь с таким e-mail уже существует' });
-    }
-    console.error('register failed:', err);
-    res.status(500).json({ error: 'Внутренняя ошибка' });
-  }
-});
+// Самостоятельной регистрации нет: учётные записи заводит администратор
+// (POST /api/admin/users), первого — CLI-скрипт create-admin.js.
+// Эндпоинт /register удалён целиком, а не закрыт флагом: пока его нет в коде,
+// его нельзя случайно включить обратно настройкой окружения.
 
 authRouter.post('/login', async (req, res) => {
   const { email, password } = req.body ?? {};

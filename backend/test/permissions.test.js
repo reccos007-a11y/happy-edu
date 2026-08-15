@@ -22,28 +22,33 @@ after(async () => {
 
 beforeEach(resetUsers);
 
-describe('регистрация и вход', () => {
-  it('регистрация создаёт обычного пользователя без прав', async () => {
+describe('вход', () => {
+  it('публичной регистрации нет', async () => {
     const call = makeClient(base);
-    const { status, data } = await call('POST', '/api/auth/register', {
+    const { status } = await call('POST', '/api/auth/register', {
+      email: 'stranger@example.com',
+      password: 'password123',
+    });
+
+    // 404: маршрута не существует. Учётные записи заводит только администратор.
+    assert.equal(status, 404);
+
+    const { rows } = await pool.query('SELECT count(*)::int AS c FROM users');
+    assert.equal(rows[0].c, 0, 'запрос не должен был создать пользователя');
+  });
+
+  it('вход выдаёт роль и список прав', async () => {
+    const call = makeClient(base);
+    await createUser('user@example.com', 'password123');
+
+    const { status, data } = await call('POST', '/api/auth/login', {
       email: 'user@example.com',
       password: 'password123',
     });
 
-    assert.equal(status, 201);
+    assert.equal(status, 200);
     assert.equal(data.user.role, 'user');
     assert.deepEqual(data.user.permissions, []);
-  });
-
-  it('роль из тела запроса игнорируется', async () => {
-    const call = makeClient(base);
-    const { data } = await call('POST', '/api/auth/register', {
-      email: 'sneaky@example.com',
-      password: 'password123',
-      role: 'admin',
-    });
-
-    assert.equal(data.user.role, 'user');
   });
 
   it('несуществующий пользователь и неверный пароль неразличимы', async () => {
