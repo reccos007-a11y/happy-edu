@@ -29,7 +29,10 @@ function cookieOptions() {
   };
 }
 
-function validate(email, password) {
+// Возвращает текст ошибки или null. Используется и при самостоятельной
+// регистрации, и когда пользователя заводит администратор: требования
+// к e-mail и паролю в обоих случаях одинаковые.
+export function validate(email, password) {
   if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
     return 'Некорректный e-mail';
   }

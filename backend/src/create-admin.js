@@ -10,19 +10,13 @@
 // Регистрация через сайт всегда создаёт обычного пользователя, поэтому первый
 // администратор заводится только так — это единственный вход в систему прав.
 
-import { randomBytes } from 'node:crypto';
 import { pool } from './db.js';
-import { hashPassword } from './password.js';
+import { generatePassword, hashPassword } from './password.js';
 import { ADMIN_ROLE } from './roles.js';
 import { runMigrations } from './migrate.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD = 8;
-
-function generatePassword() {
-  // 18 байт base64url — примерно 24 символа, достаточно для случайного пароля.
-  return randomBytes(18).toString('base64url');
-}
 
 async function main() {
   const [emailArg, passwordArg] = process.argv.slice(2);
