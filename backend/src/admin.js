@@ -7,6 +7,7 @@ import {
   DEFAULT_ROLE,
   PERMISSIONS,
   ROLES,
+  STUDENT_ROLE,
   hasPermission,
   isValidRole,
 } from './roles.js';
@@ -45,6 +46,12 @@ adminRouter.post('/users', requirePermission(PERMISSIONS.USERS_WRITE), async (re
   const error = validate(email, password);
   if (error) return res.status(400).json({ error });
   if (!isValidRole(role)) return res.status(400).json({ error: 'Неизвестная роль' });
+
+  // Ученик заводится вместе с профилем (класс, экзамен) в разделе «Ученики»,
+  // иначе получился бы student без обязательного student_profile.
+  if (role === STUDENT_ROLE) {
+    return res.status(400).json({ error: 'Учеников заводят в разделе «Ученики»' });
+  }
 
   // Раздавать администраторские права — отдельное право: users:write позволяет
   // завести обычного пользователя, но не создать себе второго администратора.

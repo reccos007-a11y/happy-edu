@@ -29,12 +29,15 @@
         <v-tabs v-model="tab" color="primary" class="border-b">
           <v-container class="py-0 d-flex">
             <v-tab value="catalog">Каталог</v-tab>
+            <v-tab v-if="canManageStudents" value="students">Ученики</v-tab>
             <v-tab value="account">Мой профиль</v-tab>
           </v-container>
         </v-tabs>
 
         <v-container class="py-8" style="max-width: 1080px">
           <SubjectCatalog v-if="tab === 'catalog'" />
+
+          <StudentsPanel v-else-if="tab === 'students' && canManageStudents" />
 
           <template v-else>
             <v-card max-width="480" class="pa-6 mb-8 register-calm" border>
@@ -58,11 +61,13 @@
 import { computed, onMounted, ref } from 'vue';
 import AdminPanel from './components/AdminPanel.vue';
 import AuthCard from './components/AuthCard.vue';
+import StudentsPanel from './components/StudentsPanel.vue';
 import SubjectCatalog from './components/SubjectCatalog.vue';
 import { useAuth } from './composables/useAuth';
 
-const { user, loading, isAdmin, refresh, logout } = useAuth();
+const { user, loading, isAdmin, can, refresh, logout } = useAuth();
 
+const canManageStudents = computed(() => can('users:write'));
 const tab = ref('catalog');
 const status = ref('проверка backend...');
 const statusColor = computed(() => (status.value.includes('подключены') ? 'success' : 'warning'));
