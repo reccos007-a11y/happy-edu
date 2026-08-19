@@ -6,6 +6,7 @@ import cors from 'cors';
 import express from 'express';
 import { adminRouter } from './admin.js';
 import { authRouter } from './auth.js';
+import { catalogRouter } from './catalog.js';
 import { pool } from './db.js';
 
 export function createApp() {
@@ -30,6 +31,7 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/catalog', catalogRouter);
 
   return app;
 }

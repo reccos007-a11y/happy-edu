@@ -10,7 +10,9 @@ import { runMigrations } from '../src/migrate.js';
 after(() => pool.end());
 
 beforeEach(async () => {
-  await pool.query('DROP TABLE IF EXISTS users, schema_migrations CASCADE');
+  await pool.query(
+    'DROP TABLE IF EXISTS topics, sections, subjects, users, schema_migrations CASCADE',
+  );
 });
 
 describe('раннер миграций', () => {
@@ -20,7 +22,7 @@ describe('раннер миграций', () => {
     const { rows } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
     assert.deepEqual(
       rows.map((r) => r.name),
-      ['001_users.sql', '002_user_roles.sql'],
+      ['001_users.sql', '002_user_roles.sql', '003_catalog.sql'],
     );
   });
 
@@ -29,7 +31,7 @@ describe('раннер миграций', () => {
     await runMigrations();
 
     const { rows } = await pool.query('SELECT count(*)::int AS c FROM schema_migrations');
-    assert.equal(rows[0].c, 2);
+    assert.equal(rows[0].c, 3);
   });
 
   it('ложится на базу, созданную прежней версией, сохраняя данные', async () => {

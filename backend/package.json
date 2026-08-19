@@ -7,6 +7,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "create-admin": "node src/create-admin.js",
+    "seed-catalog": "node src/seed-catalog.js",
     "migrate": "node src/migrate.js",
     "test": "node --test --test-concurrency=1 test/"
   },
