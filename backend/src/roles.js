@@ -8,6 +8,7 @@ export const PERMISSIONS = {
   USERS_READ: 'users:read',
   USERS_WRITE: 'users:write',
   ROLES_MANAGE: 'roles:manage',
+  CONTENT_WRITE: 'content:write',
 };
 
 const ALL_PERMISSIONS = Object.values(PERMISSIONS);

@@ -108,7 +108,12 @@ describe('доступ к админскому разделу', () => {
       password: 'password123',
     });
 
-    assert.deepEqual(login.data.user.permissions, ['users:read', 'users:write', 'roles:manage']);
+    assert.deepEqual(login.data.user.permissions, [
+      'users:read',
+      'users:write',
+      'roles:manage',
+      'content:write',
+    ]);
 
     const { status, data } = await call('GET', '/api/admin/users');
     assert.equal(status, 200);
