@@ -1,0 +1,43 @@
+/* Типографика и регистры дизайн-системы «Ясность + Импульс».
+   Шрифты (Lora, Inter) подключаются из пакетов @fontsource в main.js —
+   локально, без внешнего CDN. */
+
+:root {
+  --r-calm: 8px; /* спокойный регистр: контент, формы, админка */
+  --r-warm: 20px; /* тёплый регистр: кабинет ученика, достижения */
+  --line: #e6e1d6;
+  --ink-soft: #5a5f6b;
+}
+
+body {
+  font-family: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Заголовки — гуманистический serif: академично, но тепло. */
+h1,
+h2,
+h3,
+.text-h1,
+.text-h2,
+.text-h3,
+.text-h4,
+.font-serif {
+  font-family: 'Lora', 'Iowan Old Style', Georgia, serif;
+}
+
+/* Цифры баллов и прогресса выстраиваются в колонки. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Спокойный регистр: сдержанная форма, тонкие линии, минимум теней. */
+.register-calm .v-card {
+  border-radius: var(--r-calm);
+  border: 1px solid var(--line);
+}
+
+/* Тёплый регистр: крупные скругления и мягкая цветная тень primary. */
+.register-warm .v-card {
+  border-radius: var(--r-warm);
+  box-shadow: 0 12px 32px -14px rgba(75, 79, 203, 0.34);
+}
