@@ -11,7 +11,8 @@ after(() => pool.end());
 
 beforeEach(async () => {
   await pool.query(
-    'DROP TABLE IF EXISTS topics, sections, subjects, users, schema_migrations CASCADE',
+    `DROP TABLE IF EXISTS student_profiles, topics, sections, subjects, users, schema_migrations
+     CASCADE`,
   );
 });
 
@@ -22,7 +23,7 @@ describe('раннер миграций', () => {
     const { rows } = await pool.query('SELECT name FROM schema_migrations ORDER BY name');
     assert.deepEqual(
       rows.map((r) => r.name),
-      ['001_users.sql', '002_user_roles.sql', '003_catalog.sql'],
+      ['001_users.sql', '002_user_roles.sql', '003_catalog.sql', '004_student_profiles.sql'],
     );
   });
 
@@ -31,7 +32,7 @@ describe('раннер миграций', () => {
     await runMigrations();
 
     const { rows } = await pool.query('SELECT count(*)::int AS c FROM schema_migrations');
-    assert.equal(rows[0].c, 3);
+    assert.equal(rows[0].c, 4);
   });
 
   it('ложится на базу, созданную прежней версией, сохраняя данные', async () => {

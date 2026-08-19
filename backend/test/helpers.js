@@ -38,7 +38,9 @@ export function makeClient(base) {
 }
 
 export async function resetUsers() {
-  await pool.query('TRUNCATE users RESTART IDENTITY');
+  // CASCADE: на users ссылаются зависимые таблицы (напр. student_profiles),
+  // без него TRUNCATE упрётся в внешний ключ.
+  await pool.query('TRUNCATE users RESTART IDENTITY CASCADE');
 }
 
 // Заводит пользователя напрямую в БД, минуя HTTP: нужен, когда тесту важен
