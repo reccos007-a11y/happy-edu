@@ -8,6 +8,7 @@ import { adminRouter } from './admin.js';
 import { authRouter } from './auth.js';
 import { catalogRouter } from './catalog.js';
 import { pool } from './db.js';
+import { plansRouter } from './plans.js';
 import { studentsRouter } from './students.js';
 
 export function createApp() {
@@ -32,6 +33,7 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/admin/students', studentsRouter);
+  app.use('/api/admin', plansRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/catalog', catalogRouter);
 

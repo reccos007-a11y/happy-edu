@@ -37,6 +37,13 @@
             <td>{{ s.exam_type === 'oge' ? 'ОГЭ' : 'ЕГЭ' }}</td>
             <td class="tabular">{{ s.target_exam_date || '—' }}</td>
             <td class="text-right">
+              <v-btn
+                size="small"
+                variant="text"
+                icon="mdi-clipboard-text-outline"
+                title="Учебные планы"
+                @click="openPlans(s)"
+              />
               <v-btn size="small" variant="text" icon="mdi-pencil" @click="openEdit(s)" />
               <v-btn
                 size="small"
@@ -138,6 +145,13 @@
       </v-card>
     </v-dialog>
 
+    <StudentPlans
+      :open="plansFor.open"
+      :user-id="plansFor.userId"
+      :student-name="plansFor.name"
+      @close="plansFor.open = false"
+    />
+
     <v-snackbar v-model="snack.open" :color="snack.color" timeout="3000">{{
       snack.text
     }}</v-snackbar>
@@ -146,6 +160,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
+import StudentPlans from './StudentPlans.vue';
 import { useStudents } from '../composables/useStudents';
 
 const { students, loading, error, loadStudents, addStudent, updateStudent, removeStudent } =
@@ -164,6 +179,11 @@ const formError = ref('');
 const snack = reactive({ open: false, text: '', color: 'success' });
 const passwordDialog = reactive({ open: false, password: '' });
 const confirm = reactive({ open: false, id: null, label: '' });
+const plansFor = reactive({ open: false, userId: null, name: '' });
+
+function openPlans(s) {
+  Object.assign(plansFor, { open: true, userId: s.id, name: s.full_name || s.email });
+}
 
 function openCreate() {
   dialog.mode = 'create';
