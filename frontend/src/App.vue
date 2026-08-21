@@ -24,7 +24,12 @@
         <AuthCard v-else />
       </v-container>
 
-      <!-- Вошёл: вкладки и контент -->
+      <!-- Ученик: личный кабинет (тёплый регистр) -->
+      <v-container v-else-if="isStudent" class="py-8" style="max-width: 1080px">
+        <StudentDashboard />
+      </v-container>
+
+      <!-- Персонал: вкладки и контент -->
       <template v-else>
         <v-tabs v-model="tab" color="primary" class="border-b">
           <v-container class="py-0 d-flex">
@@ -61,6 +66,7 @@
 import { computed, onMounted, ref } from 'vue';
 import AdminPanel from './components/AdminPanel.vue';
 import AuthCard from './components/AuthCard.vue';
+import StudentDashboard from './components/StudentDashboard.vue';
 import StudentsPanel from './components/StudentsPanel.vue';
 import SubjectCatalog from './components/SubjectCatalog.vue';
 import { useAuth } from './composables/useAuth';
@@ -68,6 +74,7 @@ import { useAuth } from './composables/useAuth';
 const { user, loading, isAdmin, can, refresh, logout } = useAuth();
 
 const canManageStudents = computed(() => can('users:write'));
+const isStudent = computed(() => user.value?.role === 'student');
 const tab = ref('catalog');
 const status = ref('проверка backend...');
 const statusColor = computed(() => (status.value.includes('подключены') ? 'success' : 'warning'));
