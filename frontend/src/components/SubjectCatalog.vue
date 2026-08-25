@@ -111,6 +111,13 @@
                     >
                       {{ difficulty(topic.difficulty).label }}
                     </v-chip>
+                    <v-btn
+                      size="x-small"
+                      variant="text"
+                      icon="mdi-book-open-variant"
+                      title="Материалы темы"
+                      @click="openMaterials(topic)"
+                    />
                     <template v-if="writable">
                       <v-btn
                         size="x-small"
@@ -246,6 +253,13 @@
       </v-card>
     </v-dialog>
 
+    <TopicMaterials
+      :open="materialsFor.open"
+      :topic-id="materialsFor.topicId"
+      :topic-title="materialsFor.title"
+      @close="materialsFor.open = false"
+    />
+
     <v-snackbar v-model="snack.open" :color="snack.color" timeout="3000">{{
       snack.text
     }}</v-snackbar>
@@ -254,6 +268,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import TopicMaterials from './TopicMaterials.vue';
 import { useAuth } from '../composables/useAuth';
 import { useCatalog } from '../composables/useCatalog';
 
@@ -332,6 +347,11 @@ const form = reactive({});
 const saving = ref(false);
 const formError = ref('');
 const snack = reactive({ open: false, text: '', color: 'success' });
+const materialsFor = reactive({ open: false, topicId: null, title: '' });
+
+function openMaterials(topic) {
+  Object.assign(materialsFor, { open: true, topicId: topic.id, title: topic.title });
+}
 
 const dialogTitle = computed(() => {
   const noun = { subject: 'предмет', section: 'раздел', topic: 'тему' }[dialog.type] ?? '';

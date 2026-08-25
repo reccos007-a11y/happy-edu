@@ -22,7 +22,9 @@ after(async () => {
 
 beforeEach(async () => {
   await resetUsers();
-  await pool.query('TRUNCATE topics, sections, subjects RESTART IDENTITY CASCADE');
+  await pool.query(
+    'TRUNCATE learning_materials, topics, sections, subjects RESTART IDENTITY CASCADE',
+  );
 });
 
 // Заводит вошедшего пользователя и возвращает готовый HTTP-клиент с сессией.
@@ -217,5 +219,99 @@ describe('управление каталогом', () => {
       [subjectId],
     );
     assert.equal(rows[0].c, 0, 'разделы удалённого предмета должны быть скрыты');
+  });
+});
+
+// Тема напрямую в БД — для тестов материалов.
+async function makeTopic() {
+  const { rows: subj } = await pool.query(
+    "INSERT INTO subjects (name, applies_to) VALUES ('Биология', 'both') RETURNING id",
+  );
+  const { rows: sec } = await pool.query(
+    "INSERT INTO sections (subject_id, title) VALUES ($1, 'Раздел') RETURNING id",
+    [subj[0].id],
+  );
+  const { rows: topic } = await pool.query(
+    "INSERT INTO topics (section_id, grade, title) VALUES ($1, 8, 'Клетка') RETURNING id",
+    [sec[0].id],
+  );
+  return topic[0].id;
+}
+
+describe('учебные материалы темы', () => {
+  it('вошедший видит материалы темы', async () => {
+    const topicId = await makeTopic();
+    await pool.query(
+      `INSERT INTO learning_materials (topic_id, type, title, content, order_index)
+       VALUES ($1, 'text', 'Конспект', 'Текст', 0)`,
+      [topicId],
+    );
+    const call = await loggedInClient();
+
+    const { status, data } = await call('GET', `/api/catalog/topics/${topicId}/materials`);
+    assert.equal(status, 200);
+    assert.equal(data.materials.length, 1);
+    assert.equal(data.materials[0].type, 'text');
+  });
+
+  it('без права content:write создание запрещено (403)', async () => {
+    const topicId = await makeTopic();
+    const user = await loggedInClient('user');
+    const { status } = await user('POST', `/api/catalog/topics/${topicId}/materials`, {
+      type: 'text',
+      title: 'Конспект',
+    });
+    assert.equal(status, 403);
+  });
+
+  it('администратор создаёт материалы разных типов', async () => {
+    const topicId = await makeTopic();
+    const admin = await loggedInClient('admin');
+
+    const text = await admin('POST', `/api/catalog/topics/${topicId}/materials`, {
+      type: 'text',
+      title: 'Конспект',
+      content: 'Клетка — единица живого',
+    });
+    assert.equal(text.status, 201);
+
+    const anim = await admin('POST', `/api/catalog/topics/${topicId}/materials`, {
+      type: 'animation',
+      title: 'Схема клетки',
+      content: 'cell-structure',
+    });
+    assert.equal(anim.status, 201);
+    assert.equal(anim.data.material.content, 'cell-structure');
+  });
+
+  it('неизвестный тип материала отклоняется (400)', async () => {
+    const topicId = await makeTopic();
+    const admin = await loggedInClient('admin');
+    const { status } = await admin('POST', `/api/catalog/topics/${topicId}/materials`, {
+      type: 'hologram',
+      title: 'X',
+    });
+    assert.equal(status, 400);
+  });
+
+  it('материал редактируется и мягко удаляется', async () => {
+    const topicId = await makeTopic();
+    const admin = await loggedInClient('admin');
+    const created = await admin('POST', `/api/catalog/topics/${topicId}/materials`, {
+      type: 'text',
+      title: 'Черновик',
+      content: 'старый',
+    });
+    const id = created.data.material.id;
+
+    const patched = await admin('PATCH', `/api/catalog/materials/${id}`, { content: 'новый' });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.data.material.content, 'новый');
+
+    const del = await admin('DELETE', `/api/catalog/materials/${id}`);
+    assert.equal(del.status, 200);
+
+    const list = await admin('GET', `/api/catalog/topics/${topicId}/materials`);
+    assert.equal(list.data.materials.length, 0);
   });
 });

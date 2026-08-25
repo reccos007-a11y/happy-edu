@@ -57,13 +57,33 @@
         </div>
 
         <div class="topics">
-          <div v-for="(i, idx) in items" :key="i.id" class="topic" :class="`st-${i.status}`">
-            <span class="idx tabular">{{ idx + 1 }}</span>
-            <div class="topic-main">
-              <div class="topic-title">{{ i.topic_title }}</div>
-              <div class="topic-sub">{{ i.section_title }}</div>
+          <div v-for="(i, idx) in items" :key="i.id">
+            <div
+              class="topic"
+              :class="[`st-${i.status}`, { open: expandedTopic === i.topic_id }]"
+              @click="toggleTopic(i.topic_id)"
+            >
+              <span class="idx tabular">{{ idx + 1 }}</span>
+              <div class="topic-main">
+                <div class="topic-title">{{ i.topic_title }}</div>
+                <div class="topic-sub">{{ i.section_title }}</div>
+              </div>
+              <span class="status-chip" :class="i.status">{{ itemStatus(i.status).label }}</span>
+              <span class="chevron">{{ expandedTopic === i.topic_id ? '▾' : '▸' }}</span>
             </div>
-            <span class="status-chip" :class="i.status">{{ itemStatus(i.status).label }}</span>
+
+            <!-- Материалы темы -->
+            <div v-if="expandedTopic === i.topic_id" class="materials">
+              <div v-if="materialsLoading" class="text-center py-4">
+                <v-progress-circular indeterminate color="primary" size="24" />
+              </div>
+              <p v-else-if="materials.length === 0" class="no-materials">
+                Материалы к этой теме пока не добавлены.
+              </p>
+              <div v-else class="materials-list">
+                <MaterialView v-for="m in materials" :key="m.id" :material="m" />
+              </div>
+            </div>
           </div>
         </div>
       </template>
@@ -73,11 +93,24 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import MaterialView from './MaterialView.vue';
 import { useMe } from '../composables/useMe';
+import { useMaterials } from '../composables/useMaterials';
 
 const { profile, plans, plan, items, loading, error, loadOverview, loadPlan } = useMe();
+const { materials, loading: materialsLoading, loadMaterials } = useMaterials();
 
 const openPlanId = ref(null);
+const expandedTopic = ref(null);
+
+async function toggleTopic(topicId) {
+  if (expandedTopic.value === topicId) {
+    expandedTopic.value = null;
+    return;
+  }
+  expandedTopic.value = topicId;
+  await loadMaterials(topicId);
+}
 
 const firstName = computed(() => (profile.value?.full_name || 'ученик').split(' ')[0]);
 
@@ -125,11 +158,13 @@ const detailPercent = computed(() =>
 );
 
 async function open(planId) {
+  expandedTopic.value = null;
   await loadPlan(planId);
   openPlanId.value = planId;
 }
 function close() {
   openPlanId.value = null;
+  expandedTopic.value = null;
 }
 
 onMounted(loadOverview);
@@ -272,9 +307,42 @@ onMounted(loadOverview);
   border-radius: 14px;
   padding: 14px 18px;
   box-shadow: 0 8px 24px -18px rgba(75, 79, 203, 0.3);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.topic:hover {
+  box-shadow: 0 10px 26px -16px rgba(75, 79, 203, 0.42);
 }
 .topic.st-completed {
   background: #f3faf6;
+}
+.topic.open {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.chevron {
+  color: #8a87a0;
+  font-size: 13px;
+  flex: none;
+}
+.materials {
+  background: #faf8f3;
+  border: 1px solid #e6e1d6;
+  border-top: none;
+  border-radius: 0 0 14px 14px;
+  padding: 14px;
+  margin-top: -6px;
+}
+.materials-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.no-materials {
+  font-size: 13px;
+  color: #8a8577;
+  margin: 0;
+  padding: 6px;
 }
 .idx {
   min-width: 26px;

@@ -78,7 +78,7 @@ meRouter.get('/plans/:planId', async (req, res) => {
 
     const { rows: items } = await pool.query(
       `SELECT i.id, i.status, i.order_index,
-              t.title AS topic_title, t.codifier_code, t.difficulty,
+              t.id AS topic_id, t.title AS topic_title, t.codifier_code, t.difficulty,
               sec.title AS section_title
        FROM learning_plan_items i
        JOIN topics t ON t.id = i.topic_id

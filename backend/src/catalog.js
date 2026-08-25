@@ -444,3 +444,122 @@ catalogRouter.delete('/topics/:id', canWrite, async (req, res) => {
     res.status(500).json({ error: 'Внутренняя ошибка' });
   }
 });
+
+// ── Учебные материалы темы ──
+// Чтение — любому вошедшему (материалы не приватны); запись — content:write.
+
+const MATERIAL_TYPES = ['text', 'image', 'video', 'link', 'animation'];
+const MATERIAL_COLUMNS = 'id, topic_id, type, title, content, file_url, order_index';
+
+catalogRouter.get('/topics/:topicId/materials', async (req, res) => {
+  const topicId = parseId(req.params.topicId);
+  if (topicId === null) return res.status(400).json({ error: 'Некорректный id' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${MATERIAL_COLUMNS} FROM learning_materials
+       WHERE topic_id = $1 AND deleted_at IS NULL
+       ORDER BY order_index, id`,
+      [topicId],
+    );
+    res.json({ materials: rows });
+  } catch (err) {
+    console.error('materials list failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+catalogRouter.post('/topics/:topicId/materials', canWrite, async (req, res) => {
+  const topicId = parseId(req.params.topicId);
+  if (topicId === null) return res.status(400).json({ error: 'Некорректный id' });
+  const body = req.body ?? {};
+
+  const title = textField(body.title, { max: 255, required: true, label: 'Заголовок' });
+  if (typeof title === 'string') return res.status(400).json({ error: title });
+  const type = body.type ?? 'text';
+  if (!MATERIAL_TYPES.includes(type))
+    return res.status(400).json({ error: 'Некорректный тип материала' });
+  const order_index = Number.isInteger(body.order_index) ? body.order_index : 0;
+
+  try {
+    const topic = await pool.query('SELECT id FROM topics WHERE id = $1 AND deleted_at IS NULL', [
+      topicId,
+    ]);
+    if (!topic.rows[0]) return res.status(404).json({ error: 'Тема не найдена' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO learning_materials (topic_id, type, title, content, file_url, order_index)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${MATERIAL_COLUMNS}`,
+      [topicId, type, title.value, body.content ?? null, body.file_url ?? null, order_index],
+    );
+    res.status(201).json({ material: rows[0] });
+  } catch (err) {
+    console.error('material create failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+catalogRouter.patch('/materials/:id', canWrite, async (req, res) => {
+  const id = parseId(req.params.id);
+  if (id === null) return res.status(400).json({ error: 'Некорректный id' });
+  const body = req.body ?? {};
+
+  const sets = [];
+  const vals = [];
+  if ('title' in body) {
+    const title = textField(body.title, { max: 255, required: true, label: 'Заголовок' });
+    if (typeof title === 'string') return res.status(400).json({ error: title });
+    vals.push(title.value);
+    sets.push(`title = $${vals.length}`);
+  }
+  if ('type' in body) {
+    if (!MATERIAL_TYPES.includes(body.type))
+      return res.status(400).json({ error: 'Некорректный тип материала' });
+    vals.push(body.type);
+    sets.push(`type = $${vals.length}`);
+  }
+  if ('content' in body) {
+    vals.push(body.content ?? null);
+    sets.push(`content = $${vals.length}`);
+  }
+  if ('file_url' in body) {
+    vals.push(body.file_url ?? null);
+    sets.push(`file_url = $${vals.length}`);
+  }
+  if ('order_index' in body) {
+    if (!Number.isInteger(body.order_index))
+      return res.status(400).json({ error: 'Некорректный порядок' });
+    vals.push(body.order_index);
+    sets.push(`order_index = $${vals.length}`);
+  }
+  if (sets.length === 0) return res.status(400).json({ error: 'Нет полей для изменения' });
+
+  vals.push(id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE learning_materials SET ${sets.join(', ')}, updated_at = now()
+       WHERE id = $${vals.length} AND deleted_at IS NULL RETURNING ${MATERIAL_COLUMNS}`,
+      vals,
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Материал не найден' });
+    res.json({ material: rows[0] });
+  } catch (err) {
+    console.error('material update failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+catalogRouter.delete('/materials/:id', canWrite, async (req, res) => {
+  const id = parseId(req.params.id);
+  if (id === null) return res.status(400).json({ error: 'Некорректный id' });
+  try {
+    const { rows } = await pool.query(
+      'UPDATE learning_materials SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id',
+      [id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Материал не найден' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('material delete failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
