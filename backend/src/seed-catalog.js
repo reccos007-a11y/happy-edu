@@ -106,7 +106,22 @@ async function findOrCreateMaterial(client, topicId, material, order_index) {
     'SELECT id FROM learning_materials WHERE topic_id = $1 AND title = $2 AND deleted_at IS NULL',
     [topicId, material.title],
   );
-  if (found.rows[0]) return;
+  if (found.rows[0]) {
+    // Синхронизируем содержимое с кодом — например, чтобы у уже созданных
+    // картинок появился ключ встроенной иллюстрации (content).
+    await client.query(
+      `UPDATE learning_materials SET type = $1, content = $2, file_url = $3, order_index = $4
+       WHERE id = $5`,
+      [
+        material.type ?? 'text',
+        material.content ?? null,
+        material.file_url ?? null,
+        order_index,
+        found.rows[0].id,
+      ],
+    );
+    return;
+  }
 
   await client.query(
     `INSERT INTO learning_materials (topic_id, type, title, content, file_url, order_index)
@@ -304,7 +319,12 @@ const CATALOG = [
 
 Изучение биологии помогает понять устройство собственного тела, беречь здоровье и бережно относиться к живой природе.`,
               },
-              { type: 'image', title: 'Иллюстрация: разнообразие живой природы', file_url: '' },
+              {
+                type: 'image',
+                title: 'Иллюстрация: разнообразие живой природы',
+                content: 'bio-diversity',
+                file_url: '',
+              },
             ],
             questions: [
               {
@@ -363,7 +383,12 @@ const CATALOG = [
 
 Главное отличие человека от животных — трудовая деятельность, членораздельная речь, абстрактное мышление и способность к самопознанию.`,
               },
-              { type: 'image', title: 'Иллюстрация: место человека в природе', file_url: '' },
+              {
+                type: 'image',
+                title: 'Иллюстрация: место человека в природе',
+                content: 'human-in-nature',
+                file_url: '',
+              },
             ],
             questions: [
               {
@@ -419,7 +444,12 @@ const CATALOG = [
 
 Эти науки тесно связаны: понять работу органа нельзя без знания его строения, а беречь здоровье — без понимания того, как организм устроен и функционирует. Знания о человеке используют медицина, спорт, педагогика.`,
               },
-              { type: 'image', title: 'Иллюстрация: методы изучения организма', file_url: '' },
+              {
+                type: 'image',
+                title: 'Иллюстрация: методы изучения организма',
+                content: 'bio-methods',
+                file_url: '',
+              },
             ],
             questions: [
               {
@@ -471,6 +501,7 @@ const CATALOG = [
               {
                 type: 'image',
                 title: 'Иллюстрация: сравнение скелетов человека и обезьяны',
+                content: 'skeleton-compare',
                 file_url: '',
               },
             ],
@@ -492,7 +523,12 @@ const CATALOG = [
 
 Расовые признаки возникли как приспособление предков к разным климатическим условиям (например, тёмная кожа защищает от избытка ультрафиолета). Эти различия несущественны: все расы равноценны, имеют одинаковый уровень умственного развития и способны к неограниченному смешению. Учения о «высших» и «низших» расах (расизм) научно несостоятельны.`,
               },
-              { type: 'image', title: 'Иллюстрация: большие расы человечества', file_url: '' },
+              {
+                type: 'image',
+                title: 'Иллюстрация: большие расы человечества',
+                content: 'human-races',
+                file_url: '',
+              },
             ],
           },
         ],
