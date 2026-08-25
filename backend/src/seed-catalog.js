@@ -27,7 +27,15 @@ async function findOrCreateSection(client, subjectId, { title, order_index }) {
     'SELECT id FROM sections WHERE subject_id = $1 AND title = $2 AND deleted_at IS NULL',
     [subjectId, title],
   );
-  if (found.rows[0]) return found.rows[0].id;
+  if (found.rows[0]) {
+    // Синхронизируем порядок с положением раздела в коде — так добавление
+    // раздела в начало курса переставляет и уже существующие.
+    await client.query('UPDATE sections SET order_index = $1 WHERE id = $2', [
+      order_index,
+      found.rows[0].id,
+    ]);
+    return found.rows[0].id;
+  }
 
   const { rows } = await client.query(
     'INSERT INTO sections (subject_id, title, order_index) VALUES ($1, $2, $3) RETURNING id',
@@ -41,7 +49,13 @@ async function findOrCreateTopic(client, sectionId, topic, order_index) {
     'SELECT id FROM topics WHERE section_id = $1 AND title = $2 AND deleted_at IS NULL',
     [sectionId, topic.title],
   );
-  if (found.rows[0]) return found.rows[0].id;
+  if (found.rows[0]) {
+    await client.query('UPDATE topics SET order_index = $1 WHERE id = $2', [
+      order_index,
+      found.rows[0].id,
+    ]);
+    return found.rows[0].id;
+  }
 
   const { rows } = await client.query(
     `INSERT INTO topics (section_id, grade, title, order_index, codifier_code, difficulty)
@@ -264,6 +278,72 @@ const CATALOG = [
     applies_to: 'both',
     has_levels: false,
     sections: [
+      {
+        title: 'Введение',
+        topics: [
+          {
+            grade: 8,
+            title: 'Введение в биологию',
+            codifier_code: '0.1',
+            materials: [
+              {
+                type: 'text',
+                title: 'Конспект: что изучает биология',
+                content: `Биология — наука о живой природе. Она изучает строение, жизнедеятельность, размножение и развитие живых организмов, их связи друг с другом и со средой обитания.
+
+Живые организмы отличаются от тел неживой природы: они питаются, дышат, растут, размножаются, реагируют на раздражения и приспосабливаются к условиям жизни.
+
+Биология объединяет много разделов:
+• ботаника изучает растения;
+• зоология — животных;
+• анатомия и физиология — строение и работу организма человека;
+• микробиология — микроорганизмы;
+• экология — связи организмов со средой обитания.
+
+Основные методы биологии — наблюдение, эксперимент, измерение и сравнение. Знания биологии применяют в медицине, сельском хозяйстве и охране природы.
+
+Изучение биологии помогает понять устройство собственного тела, беречь здоровье и бережно относиться к живой природе.`,
+              },
+              { type: 'image', title: 'Иллюстрация: разнообразие живой природы', file_url: '' },
+            ],
+            questions: [
+              {
+                type: 'single_choice',
+                text: 'Что изучает биология?',
+                options: [
+                  { option_text: 'Живую природу и организмы', is_correct: true },
+                  { option_text: 'Только горные породы', is_correct: false },
+                  { option_text: 'Движение планет', is_correct: false },
+                ],
+              },
+              {
+                type: 'single_choice',
+                text: 'Какой раздел биологии изучает животных?',
+                options: [
+                  { option_text: 'Зоология', is_correct: true },
+                  { option_text: 'Ботаника', is_correct: false },
+                  { option_text: 'Экология', is_correct: false },
+                ],
+              },
+              {
+                type: 'multiple_choice',
+                text: 'Какие признаки характерны для живых организмов?',
+                options: [
+                  { option_text: 'Питание и дыхание', is_correct: true },
+                  { option_text: 'Рост и размножение', is_correct: true },
+                  { option_text: 'Реакция на раздражения', is_correct: true },
+                  { option_text: 'Постоянная неподвижность', is_correct: false },
+                ],
+              },
+              {
+                type: 'short_answer',
+                text: 'Как называется раздел биологии, изучающий растения?',
+                correct_short_answer: 'ботаника',
+              },
+            ],
+          },
+        ],
+      },
       {
         title: 'Науки об организме человека',
         topics: [
