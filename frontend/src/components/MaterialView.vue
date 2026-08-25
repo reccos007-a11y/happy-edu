@@ -8,9 +8,15 @@
     <!-- Текстовый конспект: выводим как текст (не HTML) — безопасно. -->
     <p v-if="material.type === 'text'" class="text-body">{{ material.content }}</p>
 
-    <!-- Картинка или плейсхолдер под загрузку методистом. -->
+    <!-- Картинка: встроенная SVG-иллюстрация (по ключу), внешний URL или плейсхолдер. -->
     <div v-else-if="material.type === 'image'">
-      <img v-if="material.file_url" :src="material.file_url" :alt="material.title" class="img" />
+      <component :is="illustrationComponent" v-if="illustrationComponent" />
+      <img
+        v-else-if="material.file_url"
+        :src="material.file_url"
+        :alt="material.title"
+        class="img"
+      />
       <div v-else class="placeholder">Иллюстрацию добавит методист</div>
     </div>
 
@@ -34,6 +40,7 @@
 <script setup>
 import { computed } from 'vue';
 import { ANIMATIONS } from './animations/index.js';
+import { ILLUSTRATIONS } from './illustrations/index.js';
 
 const props = defineProps({
   material: { type: Object, required: true },
@@ -41,6 +48,10 @@ const props = defineProps({
 
 const animationComponent = computed(() =>
   props.material.type === 'animation' ? (ANIMATIONS[props.material.content] ?? null) : null,
+);
+
+const illustrationComponent = computed(() =>
+  props.material.type === 'image' ? (ILLUSTRATIONS[props.material.content] ?? null) : null,
 );
 
 const TYPE = {
