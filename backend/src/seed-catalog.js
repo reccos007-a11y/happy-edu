@@ -58,6 +58,35 @@ async function findOrCreateTopic(client, sectionId, topic, order_index) {
   return rows[0].id;
 }
 
+async function findOrCreateQuestion(client, topicId, question, order_index) {
+  const found = await client.query(
+    'SELECT id FROM questions WHERE topic_id = $1 AND text = $2 AND deleted_at IS NULL',
+    [topicId, question.text],
+  );
+  if (found.rows[0]) return;
+
+  const { rows } = await client.query(
+    `INSERT INTO questions (topic_id, type, text, difficulty, correct_short_answer, order_index)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [
+      topicId,
+      question.type ?? 'single_choice',
+      question.text,
+      question.difficulty ?? 'base',
+      question.correct_short_answer ?? null,
+      order_index,
+    ],
+  );
+  const questionId = rows[0].id;
+  for (const [i, o] of (question.options ?? []).entries()) {
+    await client.query(
+      `INSERT INTO question_options (question_id, option_text, is_correct, order_index)
+       VALUES ($1, $2, $3, $4)`,
+      [questionId, o.option_text, Boolean(o.is_correct), i],
+    );
+  }
+}
+
 async function findOrCreateMaterial(client, topicId, material, order_index) {
   const found = await client.query(
     'SELECT id FROM learning_materials WHERE topic_id = $1 AND title = $2 AND deleted_at IS NULL',
@@ -296,6 +325,40 @@ const CATALOG = [
                 file_url: '',
               },
             ],
+            questions: [
+              {
+                type: 'single_choice',
+                text: 'Какая часть клетки хранит наследственную информацию?',
+                options: [
+                  { option_text: 'Ядро', is_correct: true },
+                  { option_text: 'Клеточная мембрана', is_correct: false },
+                  { option_text: 'Цитоплазма', is_correct: false },
+                ],
+              },
+              {
+                type: 'single_choice',
+                text: 'Какие органоиды называют «энергетическими станциями» клетки?',
+                options: [
+                  { option_text: 'Рибосомы', is_correct: false },
+                  { option_text: 'Митохондрии', is_correct: true },
+                  { option_text: 'Лизосомы', is_correct: false },
+                ],
+              },
+              {
+                type: 'multiple_choice',
+                text: 'Выберите функции клеточной мембраны:',
+                options: [
+                  { option_text: 'Отделяет клетку от среды', is_correct: true },
+                  { option_text: 'Управляет обменом веществ', is_correct: true },
+                  { option_text: 'Хранит ДНК', is_correct: false },
+                ],
+              },
+              {
+                type: 'short_answer',
+                text: 'Как называется полужидкая внутренняя среда клетки?',
+                correct_short_answer: 'цитоплазма',
+              },
+            ],
           },
           {
             grade: 8,
@@ -459,6 +522,7 @@ export async function seedCatalog() {
     let sections = 0;
     let topics = 0;
     let materials = 0;
+    let questionsCount = 0;
 
     for (const [si, subject] of CATALOG.entries()) {
       const subjectId = await findOrCreateSubject(client, {
@@ -484,13 +548,18 @@ export async function seedCatalog() {
             await findOrCreateMaterial(client, topicId, material, mi);
             materials += 1;
           }
+          for (const [qi, question] of (topic.questions ?? []).entries()) {
+            await findOrCreateQuestion(client, topicId, question, qi);
+            questionsCount += 1;
+          }
         }
       }
     }
 
     await client.query('COMMIT');
     console.log(
-      `Каталог: ${subjects} предметов, ${sections} разделов, ${topics} тем, ${materials} материалов`,
+      `Каталог: ${subjects} предметов, ${sections} разделов, ${topics} тем, ` +
+        `${materials} материалов, ${questionsCount} вопросов`,
     );
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

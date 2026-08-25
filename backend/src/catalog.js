@@ -563,3 +563,122 @@ catalogRouter.delete('/materials/:id', canWrite, async (req, res) => {
     res.status(500).json({ error: 'Внутренняя ошибка' });
   }
 });
+
+// ── Банк вопросов темы (управление, content:write) ──
+
+const QUESTION_TYPES = ['single_choice', 'multiple_choice', 'short_answer'];
+
+// Вопросы темы с вариантами и отметкой правильных — для админа/методиста.
+catalogRouter.get('/topics/:topicId/questions', canWrite, async (req, res) => {
+  const topicId = parseId(req.params.topicId);
+  if (topicId === null) return res.status(400).json({ error: 'Некорректный id' });
+  try {
+    const { rows: questions } = await pool.query(
+      `SELECT id, type, text, difficulty, correct_short_answer, order_index
+       FROM questions WHERE topic_id = $1 AND deleted_at IS NULL
+       ORDER BY order_index, id`,
+      [topicId],
+    );
+    const ids = questions.map((q) => q.id);
+    let options = [];
+    if (ids.length) {
+      ({ rows: options } = await pool.query(
+        `SELECT id, question_id, option_text, is_correct, order_index
+         FROM question_options WHERE question_id = ANY($1) ORDER BY order_index, id`,
+        [ids],
+      ));
+    }
+    const byQuestion = new Map(questions.map((q) => [q.id, { ...q, options: [] }]));
+    for (const o of options) byQuestion.get(o.question_id)?.options.push(o);
+    res.json({ questions: [...byQuestion.values()] });
+  } catch (err) {
+    console.error('questions list failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+// Создать вопрос с вариантами (для choice-типов) в одной транзакции.
+catalogRouter.post('/topics/:topicId/questions', canWrite, async (req, res) => {
+  const topicId = parseId(req.params.topicId);
+  if (topicId === null) return res.status(400).json({ error: 'Некорректный id' });
+  const body = req.body ?? {};
+
+  const text = String(body.text ?? '').trim();
+  if (!text) return res.status(400).json({ error: 'Текст вопроса обязателен' });
+  const type = body.type ?? 'single_choice';
+  if (!QUESTION_TYPES.includes(type))
+    return res.status(400).json({ error: 'Некорректный тип вопроса' });
+
+  const options = Array.isArray(body.options) ? body.options : [];
+  if (type === 'short_answer') {
+    if (!String(body.correct_short_answer ?? '').trim()) {
+      return res.status(400).json({ error: 'Укажите правильный ответ' });
+    }
+  } else {
+    if (options.length < 2) return res.status(400).json({ error: 'Нужно минимум два варианта' });
+    if (!options.some((o) => o.is_correct)) {
+      return res.status(400).json({ error: 'Отметьте хотя бы один правильный вариант' });
+    }
+    if (type === 'single_choice' && options.filter((o) => o.is_correct).length !== 1) {
+      return res
+        .status(400)
+        .json({ error: 'У одиночного выбора должен быть ровно один правильный вариант' });
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    const topic = await client.query('SELECT id FROM topics WHERE id = $1 AND deleted_at IS NULL', [
+      topicId,
+    ]);
+    if (!topic.rows[0]) return res.status(404).json({ error: 'Тема не найдена' });
+
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `INSERT INTO questions (topic_id, type, text, difficulty, correct_short_answer, order_index)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [
+        topicId,
+        type,
+        text,
+        body.difficulty ?? 'base',
+        type === 'short_answer' ? String(body.correct_short_answer).trim() : null,
+        Number.isInteger(body.order_index) ? body.order_index : 0,
+      ],
+    );
+    const questionId = rows[0].id;
+    if (type !== 'short_answer') {
+      for (const [i, o] of options.entries()) {
+        await client.query(
+          `INSERT INTO question_options (question_id, option_text, is_correct, order_index)
+           VALUES ($1, $2, $3, $4)`,
+          [questionId, String(o.option_text ?? '').trim(), Boolean(o.is_correct), i],
+        );
+      }
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ question: { id: questionId } });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('question create failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  } finally {
+    client.release();
+  }
+});
+
+catalogRouter.delete('/questions/:id', canWrite, async (req, res) => {
+  const id = parseId(req.params.id);
+  if (id === null) return res.status(400).json({ error: 'Некорректный id' });
+  try {
+    const { rows } = await pool.query(
+      'UPDATE questions SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id',
+      [id],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Вопрос не найден' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('question delete failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});

@@ -122,6 +122,13 @@
                       <v-btn
                         size="x-small"
                         variant="text"
+                        icon="mdi-help-circle-outline"
+                        title="Вопросы теста"
+                        @click="openQuestions(topic)"
+                      />
+                      <v-btn
+                        size="x-small"
+                        variant="text"
                         icon="mdi-pencil"
                         @click="editTopic(section, topic)"
                       />
@@ -260,6 +267,13 @@
       @close="materialsFor.open = false"
     />
 
+    <TopicQuestions
+      :open="questionsFor.open"
+      :topic-id="questionsFor.topicId"
+      :topic-title="questionsFor.title"
+      @close="questionsFor.open = false"
+    />
+
     <v-snackbar v-model="snack.open" :color="snack.color" timeout="3000">{{
       snack.text
     }}</v-snackbar>
@@ -269,6 +283,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import TopicMaterials from './TopicMaterials.vue';
+import TopicQuestions from './TopicQuestions.vue';
 import { useAuth } from '../composables/useAuth';
 import { useCatalog } from '../composables/useCatalog';
 
@@ -348,9 +363,13 @@ const saving = ref(false);
 const formError = ref('');
 const snack = reactive({ open: false, text: '', color: 'success' });
 const materialsFor = reactive({ open: false, topicId: null, title: '' });
+const questionsFor = reactive({ open: false, topicId: null, title: '' });
 
 function openMaterials(topic) {
   Object.assign(materialsFor, { open: true, topicId: topic.id, title: topic.title });
+}
+function openQuestions(topic) {
+  Object.assign(questionsFor, { open: true, topicId: topic.id, title: topic.title });
 }
 
 const dialogTitle = computed(() => {

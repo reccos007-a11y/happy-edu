@@ -11,8 +11,9 @@ after(() => pool.end());
 
 beforeEach(async () => {
   await pool.query(
-    `DROP TABLE IF EXISTS learning_materials, learning_plan_items, learning_plans,
-       student_profiles, topics, sections, subjects, users, schema_migrations CASCADE`,
+    `DROP TABLE IF EXISTS test_attempts, question_options, questions, learning_materials,
+       learning_plan_items, learning_plans, student_profiles, topics, sections, subjects,
+       users, schema_migrations CASCADE`,
   );
 });
 
@@ -30,6 +31,7 @@ describe('раннер миграций', () => {
         '004_student_profiles.sql',
         '005_learning_plans.sql',
         '006_learning_materials.sql',
+        '007_testing.sql',
       ],
     );
   });
@@ -39,7 +41,7 @@ describe('раннер миграций', () => {
     await runMigrations();
 
     const { rows } = await pool.query('SELECT count(*)::int AS c FROM schema_migrations');
-    assert.equal(rows[0].c, 6);
+    assert.equal(rows[0].c, 7);
   });
 
   it('ложится на базу, созданную прежней версией, сохраняя данные', async () => {
