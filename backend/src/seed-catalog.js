@@ -285,6 +285,41 @@ const CATALOG = [
               },
               { type: 'image', title: 'Иллюстрация: место человека в природе', file_url: '' },
             ],
+            questions: [
+              {
+                type: 'single_choice',
+                text: 'К какому классу животных относится человек по биологической природе?',
+                options: [
+                  { option_text: 'Млекопитающие', is_correct: true },
+                  { option_text: 'Пресмыкающиеся', is_correct: false },
+                  { option_text: 'Птицы', is_correct: false },
+                ],
+              },
+              {
+                type: 'single_choice',
+                text: 'Что из перечисленного НЕ передаётся по наследству, а формируется только в обществе?',
+                options: [
+                  { option_text: 'Речь и мышление', is_correct: true },
+                  { option_text: 'Цвет глаз', is_correct: false },
+                  { option_text: 'Строение скелета', is_correct: false },
+                ],
+              },
+              {
+                type: 'multiple_choice',
+                text: 'Выберите признаки, отличающие человека от животных:',
+                options: [
+                  { option_text: 'Трудовая деятельность', is_correct: true },
+                  { option_text: 'Членораздельная речь', is_correct: true },
+                  { option_text: 'Абстрактное мышление', is_correct: true },
+                  { option_text: 'Обмен веществ', is_correct: false },
+                ],
+              },
+              {
+                type: 'short_answer',
+                text: 'Как называют природу человека, в которой сочетаются биологическое и социальное начала?',
+                correct_short_answer: 'биосоциальная',
+              },
+            ],
           },
           {
             grade: 8,
@@ -305,6 +340,31 @@ const CATALOG = [
 Эти науки тесно связаны: понять работу органа нельзя без знания его строения, а беречь здоровье — без понимания того, как организм устроен и функционирует. Знания о человеке используют медицина, спорт, педагогика.`,
               },
               { type: 'image', title: 'Иллюстрация: методы изучения организма', file_url: '' },
+            ],
+            questions: [
+              {
+                type: 'single_choice',
+                text: 'Какая наука изучает строение тела и его органов?',
+                options: [
+                  { option_text: 'Анатомия', is_correct: true },
+                  { option_text: 'Физиология', is_correct: false },
+                  { option_text: 'Гигиена', is_correct: false },
+                ],
+              },
+              {
+                type: 'single_choice',
+                text: 'Какая наука изучает функции органов и то, как они работают?',
+                options: [
+                  { option_text: 'Физиология', is_correct: true },
+                  { option_text: 'Анатомия', is_correct: false },
+                  { option_text: 'Гигиена', is_correct: false },
+                ],
+              },
+              {
+                type: 'short_answer',
+                text: 'Какая наука разрабатывает правила сохранения здоровья?',
+                correct_short_answer: 'гигиена',
+              },
             ],
           },
         ],
