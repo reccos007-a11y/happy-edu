@@ -83,6 +83,18 @@
               <div v-else class="materials-list">
                 <MaterialView v-for="m in materials" :key="m.id" :material="m" />
               </div>
+
+              <!-- Тест по теме -->
+              <div class="test-zone">
+                <button
+                  v-if="testTopic !== i.topic_id"
+                  class="test-toggle"
+                  @click="testTopic = i.topic_id"
+                >
+                  ✏️ Пройти тест по теме
+                </button>
+                <TopicTest v-else :topic-id="i.topic_id" @passed="onTestPassed" />
+              </div>
             </div>
           </div>
         </div>
@@ -94,6 +106,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import MaterialView from './MaterialView.vue';
+import TopicTest from './TopicTest.vue';
 import { useMe } from '../composables/useMe';
 import { useMaterials } from '../composables/useMaterials';
 
@@ -102,14 +115,21 @@ const { materials, loading: materialsLoading, loadMaterials } = useMaterials();
 
 const openPlanId = ref(null);
 const expandedTopic = ref(null);
+const testTopic = ref(null);
 
 async function toggleTopic(topicId) {
+  testTopic.value = null;
   if (expandedTopic.value === topicId) {
     expandedTopic.value = null;
     return;
   }
   expandedTopic.value = topicId;
   await loadMaterials(topicId);
+}
+
+// Тест зачтён — перезагружаем план: статус темы и прогресс обновятся.
+async function onTestPassed() {
+  if (openPlanId.value) await loadPlan(openPlanId.value);
 }
 
 const firstName = computed(() => (profile.value?.full_name || 'ученик').split(' ')[0]);
@@ -165,6 +185,7 @@ async function open(planId) {
 function close() {
   openPlanId.value = null;
   expandedTopic.value = null;
+  testTopic.value = null;
 }
 
 onMounted(loadOverview);
@@ -343,6 +364,23 @@ onMounted(loadOverview);
   color: #8a8577;
   margin: 0;
   padding: 6px;
+}
+.test-zone {
+  margin-top: 12px;
+}
+.test-toggle {
+  border: 1px solid #4b4fcb;
+  color: #4b4fcb;
+  background: #fff;
+  font-weight: 700;
+  font-size: 13.5px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.test-toggle:hover {
+  background: #f2f2fd;
 }
 .idx {
   min-width: 26px;
