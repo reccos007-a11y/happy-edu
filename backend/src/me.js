@@ -50,11 +50,12 @@ meRouter.get('/plans', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT p.id, p.subject_id, s.name AS subject_name, p.exam_type, p.status,
               p.start_date, p.target_date,
-              count(i.id)::int AS topics_total,
-              count(i.id) FILTER (WHERE i.status = 'completed')::int AS topics_done
+              count(ti.id)::int AS topics_total,
+              count(ti.id) FILTER (WHERE i.status = 'completed')::int AS topics_done
        FROM learning_plans p
        JOIN subjects s ON s.id = p.subject_id
        LEFT JOIN learning_plan_items i ON i.plan_id = p.id
+       LEFT JOIN topics ti ON ti.id = i.topic_id AND ti.deleted_at IS NULL
        WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
        GROUP BY p.id, s.name
        ORDER BY p.created_at`,
@@ -90,7 +91,7 @@ meRouter.get('/plans/:planId', async (req, res) => {
               t.id AS topic_id, t.title AS topic_title, t.codifier_code, t.difficulty,
               sec.title AS section_title
        FROM learning_plan_items i
-       JOIN topics t ON t.id = i.topic_id
+       JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
        JOIN sections sec ON sec.id = t.section_id
        WHERE i.plan_id = $1
        ORDER BY i.order_index, i.id`,

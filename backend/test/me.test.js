@@ -115,4 +115,21 @@ describe('кабинет ученика', () => {
     const { status } = await call('GET', `/api/me/plans/${other.planId}`);
     assert.equal(status, 404, 'план другого ученика недоступен');
   });
+
+  it('удалённая из каталога тема не висит в плане и не считается в прогрессе', async () => {
+    const { planId } = await seedStudentWithPlan('pupil@example.com');
+    const call = await login('pupil@example.com');
+
+    const before = await call('GET', `/api/me/plans/${planId}`);
+    assert.equal(before.data.items.length, 2);
+
+    // Тему убрали из каталога (мягкое удаление).
+    await pool.query("UPDATE topics SET deleted_at = now() WHERE title = 'Тема 2'");
+
+    const after = await call('GET', `/api/me/plans/${planId}`);
+    assert.equal(after.data.items.length, 1, 'удалённая тема не показывается в плане');
+
+    const list = await call('GET', '/api/me/plans');
+    assert.equal(list.data.plans[0].topics_total, 1, 'прогресс не учитывает удалённую тему');
+  });
 });
