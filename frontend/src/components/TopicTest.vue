@@ -27,9 +27,16 @@
 
       <!-- Разбор ошибок -->
       <div v-if="review" class="review">
-        <div v-for="(q, qi) in questions" :key="q.id" class="rev-row" :class="{ bad: !result.results[q.id] }">
+        <div
+          v-for="(q, qi) in questions"
+          :key="q.id"
+          class="rev-row"
+          :class="{ bad: !result.results[q.id] }"
+        >
           <span class="rev-ic">{{ result.results[q.id] ? '✓' : '✗' }}</span>
-          <span class="rev-text"><b>{{ qi + 1 }}.</b> {{ q.text }}</span>
+          <span class="rev-text"
+            ><b>{{ qi + 1 }}.</b> {{ q.text }}</span
+          >
         </div>
       </div>
 

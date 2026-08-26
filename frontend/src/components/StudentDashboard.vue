@@ -52,7 +52,9 @@
         <!-- Продолжить с того же места -->
         <button v-if="resume" class="resume" @click="resumeStudy">
           <div class="resume-left">
-            <div class="ring" :style="ringStyle(resumeProgress)"><span>{{ resumeProgress }}%</span></div>
+            <div class="ring" :style="ringStyle(resumeProgress)">
+              <span>{{ resumeProgress }}%</span>
+            </div>
             <div class="resume-text">
               <div class="resume-cap">Продолжить с того же места</div>
               <div class="resume-title">{{ resume.subject_name }} · {{ resume.topic_title }}</div>
@@ -128,10 +130,14 @@
               <div class="path-node">
                 <div class="node-dot" :class="s.state">
                   <span v-if="s.state === 'done'">✓</span>
-                  <span v-else-if="s.state === 'current'" class="tabular">{{ s.done }}/{{ s.total }}</span>
+                  <span v-else-if="s.state === 'current'" class="tabular"
+                    >{{ s.done }}/{{ s.total }}</span
+                  >
                   <span v-else class="tabular">{{ si + 1 }}</span>
                 </div>
-                <div class="node-title" :class="{ current: s.state === 'current' }">{{ s.title }}</div>
+                <div class="node-title" :class="{ current: s.state === 'current' }">
+                  {{ s.title }}
+                </div>
                 <div class="node-sub tabular">
                   {{ s.state === 'current' ? 'вы здесь' : s.done + ' / ' + s.total }}
                 </div>
@@ -194,8 +200,19 @@ import TopicTest from './TopicTest.vue';
 import { useMe } from '../composables/useMe';
 import { useMaterials } from '../composables/useMaterials';
 
-const { profile, plans, plan, items, stats, resume, loading, error, loadOverview, loadPlan, refreshStats } =
-  useMe();
+const {
+  profile,
+  plans,
+  plan,
+  items,
+  stats,
+  resume,
+  loading,
+  error,
+  loadOverview,
+  loadPlan,
+  refreshStats,
+} = useMe();
 const { materials, loading: materialsLoading, loadMaterials } = useMaterials();
 
 const openPlanId = ref(null);
@@ -267,7 +284,8 @@ const streakWord = computed(() => {
   const n = stats.value?.streakDays ?? 0;
   const d = n % 10;
   const dd = n % 100;
-  const w = d === 1 && dd !== 11 ? 'день' : d >= 2 && d <= 4 && (dd < 10 || dd >= 20) ? 'дня' : 'дней';
+  const w =
+    d === 1 && dd !== 11 ? 'день' : d >= 2 && d <= 4 && (dd < 10 || dd >= 20) ? 'дня' : 'дней';
   return `${w} серии`;
 });
 const earnedBadges = computed(() => stats.value?.badges.filter((b) => b.earned).length ?? 0);

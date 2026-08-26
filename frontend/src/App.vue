@@ -138,7 +138,9 @@ onMounted(async () => {
   border: none;
   border-radius: 8px;
   padding: 9px 15px;
-  font: 600 13px/1 'Inter', sans-serif;
+  font:
+    600 13px/1 'Inter',
+    sans-serif;
   cursor: pointer;
 }
 .navbar-logout:hover {

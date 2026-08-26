@@ -31,9 +31,7 @@
     </v-form>
 
     <p class="auth-note">Забыли пароль? Напишите преподавателю — он сбросит доступ.</p>
-    <p class="auth-note muted">
-      Регистрации на портале нет: учётную запись создаёт администратор.
-    </p>
+    <p class="auth-note muted">Регистрации на портале нет: учётную запись создаёт администратор.</p>
   </div>
 </template>
 
@@ -93,7 +91,9 @@ async function submit() {
   border: none;
   border-radius: var(--r-calm);
   padding: 14px;
-  font: 600 15px/1 'Inter', sans-serif;
+  font:
+    600 15px/1 'Inter',
+    sans-serif;
   cursor: pointer;
   margin-top: 4px;
 }
