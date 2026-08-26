@@ -16,6 +16,8 @@ export function useMe() {
   const plans = ref([]);
   const plan = ref(null);
   const items = ref([]);
+  const stats = ref(null);
+  const resume = ref(null);
   const loading = ref(false);
   const error = ref('');
 
@@ -23,13 +25,26 @@ export function useMe() {
     loading.value = true;
     error.value = '';
     try {
-      const [p, pl] = await Promise.all([api('/profile'), api('/plans')]);
+      const [p, pl, ov] = await Promise.all([api('/profile'), api('/plans'), api('/overview')]);
       profile.value = p.profile;
       plans.value = pl.plans;
+      stats.value = ov.stats;
+      resume.value = ov.resume;
     } catch (e) {
       error.value = e.message;
     } finally {
       loading.value = false;
+    }
+  }
+
+  // Пересчёт геймификации после зачёта темы (XP/уровень/значки/«продолжить»).
+  async function refreshStats() {
+    try {
+      const ov = await api('/overview');
+      stats.value = ov.stats;
+      resume.value = ov.resume;
+    } catch {
+      /* не критично для UI */
     }
   }
 
@@ -47,5 +62,17 @@ export function useMe() {
     }
   }
 
-  return { profile, plans, plan, items, loading, error, loadOverview, loadPlan };
+  return {
+    profile,
+    plans,
+    plan,
+    items,
+    stats,
+    resume,
+    loading,
+    error,
+    loadOverview,
+    loadPlan,
+    refreshStats,
+  };
 }

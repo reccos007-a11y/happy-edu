@@ -1,16 +1,14 @@
 <template>
   <v-app>
-    <v-app-bar color="primary" flat>
-      <v-app-bar-title class="font-serif">Happy-edu</v-app-bar-title>
-      <template #append>
-        <template v-if="user">
-          <span class="mr-2 text-body-2 d-none d-sm-inline">{{ user.email }}</span>
-          <v-chip v-if="isAdmin" size="small" color="white" variant="outlined" class="mr-4">
-            Администратор
-          </v-chip>
-          <v-btn variant="tonal" size="small" :loading="leaving" @click="signOut">Выйти</v-btn>
-        </template>
-      </template>
+    <v-app-bar flat :height="66" class="navbar">
+      <div class="navbar-inner">
+        <AppLogo :size="30" theme="dark" />
+        <div v-if="user" class="navbar-right">
+          <span class="navbar-email d-none d-sm-inline">{{ user.email }}</span>
+          <span v-if="isAdmin" class="navbar-chip">Администратор</span>
+          <button class="navbar-logout" :disabled="leaving" @click="signOut">Выйти</button>
+        </div>
+      </div>
     </v-app-bar>
 
     <v-main>
@@ -65,6 +63,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import AdminPanel from './components/AdminPanel.vue';
+import AppLogo from './components/AppLogo.vue';
 import AuthCard from './components/AuthCard.vue';
 import StudentDashboard from './components/StudentDashboard.vue';
 import StudentsPanel from './components/StudentsPanel.vue';
@@ -100,3 +99,53 @@ onMounted(async () => {
   }
 });
 </script>
+
+<style scoped>
+.navbar {
+  background: #171a2b !important;
+  color: #fff;
+}
+.navbar :deep(.v-toolbar__content) {
+  padding: 0;
+}
+.navbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0 24px;
+}
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.navbar-email {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.navbar-chip {
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  border-radius: 8px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.navbar-logout {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 15px;
+  font: 600 13px/1 'Inter', sans-serif;
+  cursor: pointer;
+}
+.navbar-logout:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.navbar-logout:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+</style>
