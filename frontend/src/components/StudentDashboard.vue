@@ -150,20 +150,31 @@
           <div v-for="(i, idx) in items" :key="i.id">
             <div
               class="topic"
-              :class="[`st-${i.status}`, { open: expandedTopic === i.topic_id }]"
-              @click="toggleTopic(i.topic_id)"
+              :class="[`st-${i.status}`, { open: expandedTopic === i.topic_id, locked: i.locked }]"
+              @click="onTopicClick(i)"
             >
               <span class="idx tabular">{{ idx + 1 }}</span>
               <div class="topic-main">
                 <div class="topic-title">{{ i.topic_title }}</div>
-                <div class="topic-sub">{{ i.section_title }} · +40 XP</div>
+                <div class="topic-sub">
+                  {{
+                    i.locked
+                      ? 'Завершите предыдущую тему, чтобы открыть'
+                      : i.section_title + ' · +40 XP'
+                  }}
+                </div>
               </div>
-              <span class="status-chip" :class="i.status">{{ itemStatus(i.status).label }}</span>
-              <span class="chevron">{{ expandedTopic === i.topic_id ? '▾' : '▸' }}</span>
+              <span v-if="i.locked" class="status-chip locked">🔒 недоступна</span>
+              <span v-else class="status-chip" :class="i.status">{{
+                itemStatus(i.status).label
+              }}</span>
+              <span class="chevron">{{
+                i.locked ? '🔒' : expandedTopic === i.topic_id ? '▾' : '▸'
+              }}</span>
             </div>
 
             <!-- Материалы темы -->
-            <div v-if="expandedTopic === i.topic_id" class="materials">
+            <div v-if="expandedTopic === i.topic_id && !i.locked" class="materials">
               <div v-if="materialsLoading" class="text-center py-4">
                 <v-progress-circular indeterminate color="primary" size="24" />
               </div>
@@ -227,6 +238,12 @@ async function toggleTopic(topicId) {
   }
   expandedTopic.value = topicId;
   await loadMaterials(topicId);
+}
+
+// Заблокированную тему открыть нельзя — сначала нужно завершить предыдущую.
+function onTopicClick(item) {
+  if (item.locked) return;
+  toggleTopic(item.topic_id);
 }
 
 // Тест зачтён — перезагружаем план и геймификацию: статус темы, XP, значки обновятся.
@@ -786,6 +803,24 @@ onMounted(loadOverview);
 }
 .topic.st-in_progress {
   border-left: 3px solid #4b4fcb;
+}
+.topic.locked {
+  background: #f6f4ef;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.topic.locked:hover {
+  box-shadow: none;
+}
+.topic.locked .topic-title {
+  color: #9a958a;
+}
+.topic.locked .idx {
+  color: #bdb8ab;
+}
+.status-chip.locked {
+  background: #eeebe3;
+  color: #8a8577;
 }
 .topic.open {
   border-bottom-left-radius: 0;
