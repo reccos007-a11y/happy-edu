@@ -6,6 +6,7 @@ import express from 'express';
 import { requireAuth } from './auth.js';
 import { pool } from './db.js';
 import { STUDENT_ROLE } from './roles.js';
+import { XP_PER_TOPIC, levelFromXp, streakFromDates, computeBadges } from './gamification.js';
 
 export const meRouter = express.Router();
 
@@ -38,6 +39,86 @@ meRouter.get('/profile', async (req, res) => {
     res.json({ profile });
   } catch (err) {
     console.error('me profile failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+// Сводка кабинета для геймификации: XP/уровень/серия/значки — всё выведено из уже
+// существующих данных (освоенные темы, попытки тестов), плюс «продолжить с того же
+// места». Никаких отдельных счётчиков в БД.
+meRouter.get('/overview', async (req, res) => {
+  try {
+    const profile = await ownProfile(req.user.id);
+    if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    const [totalsRes, datesRes, bestRes, resumeRes] = await Promise.all([
+      // Итоги по всем активным планам ученика + число полностью пройденных предметов.
+      pool.query(
+        `WITH plan_stats AS (
+           SELECT p.id,
+                  count(t.id)::int AS tot,
+                  count(t.id) FILTER (WHERE i.status = 'completed')::int AS done
+           FROM learning_plans p
+           JOIN learning_plan_items i ON i.plan_id = p.id
+           JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+           WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
+           GROUP BY p.id
+         )
+         SELECT COALESCE(sum(done), 0)::int AS topics_completed,
+                COALESCE(sum(tot), 0)::int AS topics_total,
+                count(*) FILTER (WHERE tot > 0 AND tot = done)::int AS subjects_completed
+         FROM plan_stats`,
+        [profile.id],
+      ),
+      // Дни с активностью (для серии).
+      pool.query(
+        `SELECT DISTINCT finished_at::date::text AS d
+         FROM test_attempts WHERE student_id = $1`,
+        [profile.id],
+      ),
+      // Лучший результат теста (для значка «Отличник»).
+      pool.query(
+        `SELECT COALESCE(MAX(score_percent), 0)::float AS best
+         FROM test_attempts WHERE student_id = $1`,
+        [profile.id],
+      ),
+      // «Продолжить»: сначала тема в процессе, иначе первая не начатая.
+      pool.query(
+        `SELECT p.id AS plan_id, s.name AS subject_name,
+                t.id AS topic_id, t.title AS topic_title, sec.title AS section_title,
+                i.status
+         FROM learning_plans p
+         JOIN learning_plan_items i ON i.plan_id = p.id
+         JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+         JOIN sections sec ON sec.id = t.section_id
+         JOIN subjects s ON s.id = p.subject_id
+         WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
+           AND i.status IN ('in_progress', 'not_started')
+         ORDER BY (i.status = 'in_progress') DESC, p.created_at, i.order_index, i.id
+         LIMIT 1`,
+        [profile.id],
+      ),
+    ]);
+
+    const totals = totalsRes.rows[0];
+    const topicsCompleted = totals.topics_completed;
+    const subjectsCompleted = totals.subjects_completed;
+    const streakDays = streakFromDates(datesRes.rows.map((r) => r.d));
+    const bestScore = Number(bestRes.rows[0].best);
+    const xp = topicsCompleted * XP_PER_TOPIC;
+
+    const stats = {
+      ...levelFromXp(xp),
+      topicsCompleted,
+      topicsTotal: totals.topics_total,
+      subjectsCompleted,
+      streakDays,
+      badges: computeBadges({ topicsCompleted, subjectsCompleted, streakDays, bestScore }),
+    };
+
+    res.json({ profile, stats, resume: resumeRes.rows[0] ?? null });
+  } catch (err) {
+    console.error('me overview failed:', err);
     res.status(500).json({ error: 'Внутренняя ошибка' });
   }
 });
@@ -190,13 +271,15 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
 
     // Позиция плана этого ученика для темы — чтобы привязать попытку и отметить зачёт.
     const { rows: planItem } = await client.query(
-      `SELECT i.id FROM learning_plan_items i
+      `SELECT i.id, i.status FROM learning_plan_items i
        JOIN learning_plans p ON p.id = i.plan_id
        WHERE p.student_id = $1 AND i.topic_id = $2 AND p.deleted_at IS NULL
        LIMIT 1`,
       [profile.id, topicId],
     );
     const planItemId = planItem[0]?.id ?? null;
+    // Начисляем XP только при ПЕРВОМ зачёте темы (статус completed терминальный).
+    const newlyCompleted = passed && planItemId != null && planItem[0].status !== 'completed';
 
     await client.query('BEGIN');
     await client.query(
@@ -220,7 +303,31 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
     }
     await client.query('COMMIT');
 
-    res.json({ percent, passed, correct, total: questions.length, results });
+    // Справочные поля для экрана результата: XP за эту тему и уровень после зачёта.
+    // XP выведен из числа освоенных тем, поэтому считаем completed до/после.
+    const { rows: cnt } = await client.query(
+      `SELECT count(*) FILTER (WHERE i.status = 'completed')::int AS c
+       FROM learning_plans p
+       JOIN learning_plan_items i ON i.plan_id = p.id
+       JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+       WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'`,
+      [profile.id],
+    );
+    const completedAfter = cnt[0].c;
+    const xpAwarded = newlyCompleted ? XP_PER_TOPIC : 0;
+    const levelBefore = levelFromXp((completedAfter - (newlyCompleted ? 1 : 0)) * XP_PER_TOPIC);
+    const levelAfter = levelFromXp(completedAfter * XP_PER_TOPIC);
+
+    res.json({
+      percent,
+      passed,
+      correct,
+      total: questions.length,
+      results,
+      xpAwarded,
+      leveledUp: levelAfter.level > levelBefore.level,
+      level: levelAfter,
+    });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('me test submit failed:', err);
