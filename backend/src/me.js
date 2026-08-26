@@ -32,6 +32,28 @@ async function ownProfile(userId) {
   return rows[0] ?? null;
 }
 
+// Последовательное открытие тем: НАЧАТЬ (не начатую) тему нельзя, пока предыдущая
+// в плане не зачтена. Уже начатые (в процессе / на повторение) и зачтённые темы
+// остаются доступными — иначе провал теста запер бы ученика без права пересдачи.
+async function topicLocked(profileId, topicId) {
+  const { rows } = await pool.query(
+    `WITH ord AS (
+       SELECT i.topic_id, i.status,
+              lag(i.status) OVER (PARTITION BY i.plan_id ORDER BY i.order_index, i.id) AS prev,
+              row_number() OVER (PARTITION BY i.plan_id ORDER BY i.order_index, i.id) AS rn
+       FROM learning_plan_items i
+       JOIN learning_plans p ON p.id = i.plan_id
+       JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+       WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
+     )
+     SELECT status, prev, rn FROM ord WHERE topic_id = $2 LIMIT 1`,
+    [profileId, topicId],
+  );
+  const r = rows[0];
+  if (!r) return false; // темы нет в планах — гейт не применяем
+  return r.status === 'not_started' && Number(r.rn) > 1 && r.prev !== 'completed';
+}
+
 meRouter.get('/profile', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
@@ -82,7 +104,8 @@ meRouter.get('/overview', async (req, res) => {
          FROM test_attempts WHERE student_id = $1`,
         [profile.id],
       ),
-      // «Продолжить»: сначала тема в процессе, иначе первая не начатая.
+      // «Продолжить»: первая незакрытая тема по порядку (уже начатые — вперёд).
+      // Первая незакрытая в плане всегда доступна: всё до неё уже зачтено.
       pool.query(
         `SELECT p.id AS plan_id, s.name AS subject_name,
                 t.id AS topic_id, t.title AS topic_title, sec.title AS section_title,
@@ -93,8 +116,9 @@ meRouter.get('/overview', async (req, res) => {
          JOIN sections sec ON sec.id = t.section_id
          JOIN subjects s ON s.id = p.subject_id
          WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
-           AND i.status IN ('in_progress', 'not_started')
-         ORDER BY (i.status = 'in_progress') DESC, p.created_at, i.order_index, i.id
+           AND i.status <> 'completed'
+         ORDER BY (i.status IN ('in_progress', 'needs_review')) DESC,
+                  p.created_at, i.order_index, i.id
          LIMIT 1`,
         [profile.id],
       ),
@@ -170,11 +194,20 @@ meRouter.get('/plans/:planId', async (req, res) => {
     const { rows: items } = await pool.query(
       `SELECT i.id, i.status, i.order_index,
               t.id AS topic_id, t.title AS topic_title, t.codifier_code, t.difficulty,
-              sec.title AS section_title
+              sec.title AS section_title,
+              -- Тема заблокирована, если её ещё не начинали, а предыдущая в плане
+              -- не зачтена. Первая тема и уже начатые/зачтённые не блокируются.
+              CASE
+                WHEN i.status <> 'not_started' THEN false
+                WHEN lag(i.status) OVER w IS NULL THEN false
+                WHEN lag(i.status) OVER w = 'completed' THEN false
+                ELSE true
+              END AS locked
        FROM learning_plan_items i
        JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
        JOIN sections sec ON sec.id = t.section_id
        WHERE i.plan_id = $1
+       WINDOW w AS (ORDER BY i.order_index, i.id)
        ORDER BY i.order_index, i.id`,
       [planId],
     );
@@ -192,6 +225,10 @@ meRouter.get('/topics/:topicId/test', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    if (await topicLocked(profile.id, topicId)) {
+      return res.status(403).json({ error: 'Сначала завершите предыдущую тему' });
+    }
 
     const { rows: questions } = await pool.query(
       `SELECT id, type, text, order_index FROM questions
@@ -228,6 +265,10 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    if (await topicLocked(profile.id, topicId)) {
+      return res.status(403).json({ error: 'Сначала завершите предыдущую тему' });
+    }
 
     const { rows: questions } = await client.query(
       `SELECT id, type, correct_short_answer FROM questions
