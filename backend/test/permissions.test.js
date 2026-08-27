@@ -113,6 +113,7 @@ describe('доступ к админскому разделу', () => {
       'users:write',
       'roles:manage',
       'content:write',
+      'settings:manage',
     ]);
 
     const { status, data } = await call('GET', '/api/admin/users');
