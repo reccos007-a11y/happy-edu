@@ -42,16 +42,20 @@ async function seed() {
     "INSERT INTO student_profiles (user_id, grade, exam_type) VALUES ($1, 9, 'oge') RETURNING id",
     [user.id],
   );
+  // Опубликованный предмет: план наполняется только опубликованными темами,
+  // а черновики проверяются отдельно в publishing.test.js.
   const { rows: subj } = await pool.query(
-    "INSERT INTO subjects (name, applies_to) VALUES ('Обществознание', 'oge') RETURNING id",
+    `INSERT INTO subjects (name, applies_to, published_at)
+     VALUES ('Обществознание', 'oge', now()) RETURNING id`,
   );
   const { rows: sec } = await pool.query(
-    "INSERT INTO sections (subject_id, title, order_index) VALUES ($1, 'Человек и общество', 0) RETURNING id",
+    `INSERT INTO sections (subject_id, title, order_index, published_at)
+     VALUES ($1, 'Человек и общество', 0, now()) RETURNING id`,
     [subj[0].id],
   );
   await pool.query(
-    `INSERT INTO topics (section_id, grade, title, order_index) VALUES
-       ($1, 9, 'Тема 1', 0), ($1, 9, 'Тема 2', 1), ($1, 9, 'Тема 3', 2)`,
+    `INSERT INTO topics (section_id, grade, title, order_index, published_at) VALUES
+       ($1, 9, 'Тема 1', 0, now()), ($1, 9, 'Тема 2', 1, now()), ($1, 9, 'Тема 3', 2, now())`,
     [sec[0].id],
   );
   return { userId: user.id, profileId: prof[0].id, subjectId: subj[0].id };
