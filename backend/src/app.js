@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import { adminRouter } from './admin.js';
+import { analyticsRouter } from './analytics.js';
 import { authRouter } from './auth.js';
 import { catalogRouter } from './catalog.js';
 import { pool } from './db.js';
@@ -35,6 +36,7 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/me', meRouter);
+  app.use('/api/admin/analytics', analyticsRouter);
   app.use('/api/admin/students', studentsRouter);
   app.use('/api/admin/settings', settingsRouter);
   app.use('/api/admin', plansRouter);
