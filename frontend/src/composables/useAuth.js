@@ -22,8 +22,12 @@ async function api(path, options = {}) {
 }
 
 export function useAuth() {
+  // Показываем загрузку только пока пользователя ещё нет. Повторный refresh
+  // (например, после смены аватара) не должен поднимать флаг: App.vue на это
+  // время подменяет весь экран спиннером, кабинет пересоздаётся заново и
+  // открытые в нём диалоги закрываются на середине действия.
   async function refresh() {
-    loading.value = true;
+    if (!user.value) loading.value = true;
     try {
       const { user: me } = await api('/me');
       user.value = me;

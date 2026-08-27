@@ -57,9 +57,13 @@ export function publicUser(row) {
   return {
     id: row.id,
     email: row.email,
+    full_name: row.full_name ?? null,
     role: row.role,
     permissions: permissionsOf(row.role),
     created_at: row.created_at,
+    // Признак, а не сама картинка: по нему интерфейс решает, показывать
+    // фотографию или инициалы, и не ходит за аватаром вслепую.
+    has_avatar: row.has_avatar ?? false,
   };
 }
 
@@ -72,7 +76,9 @@ async function userFromRequest(req) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     const { rows } = await pool.query(
-      'SELECT id, email, role, created_at FROM users WHERE id = $1',
+      `SELECT u.id, u.email, u.role, u.created_at, u.full_name,
+              EXISTS (SELECT 1 FROM user_avatars a WHERE a.user_id = u.id) AS has_avatar
+       FROM users u WHERE u.id = $1`,
       [payload.sub],
     );
     return rows[0] ?? null;
@@ -119,7 +125,9 @@ authRouter.post('/login', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      'SELECT id, email, password_hash, role, created_at FROM users WHERE lower(email) = $1',
+      `SELECT u.id, u.email, u.password_hash, u.role, u.created_at, u.full_name,
+              EXISTS (SELECT 1 FROM user_avatars a WHERE a.user_id = u.id) AS has_avatar
+       FROM users u WHERE lower(u.email) = $1`,
       [normalized],
     );
     const user = rows[0];

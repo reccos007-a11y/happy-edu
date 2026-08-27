@@ -1,10 +1,12 @@
-// Кабинет ученика (только чтение): вошедший ученик видит собственный профиль,
-// свои учебные планы и прогресс. Доступ — по принадлежности данных: без прав из
-// PERMISSIONS, каждый видит только своё. Не-ученик (нет профиля) получает 404.
+// Кабинет ученика: вошедший ученик видит собственный профиль, свои учебные
+// планы и прогресс, а также правит профиль и меняет пароль. Доступ — по
+// принадлежности данных: без прав из PERMISSIONS, каждый видит только своё.
+// Не-ученик (нет профиля) получает 404.
 
 import express from 'express';
 import { requireAuth } from './auth.js';
 import { pool } from './db.js';
+import { hashPassword, verifyPassword } from './password.js';
 import { STUDENT_ROLE } from './roles.js';
 import { levelFromXp, streakFromDates, computeBadges } from './gamification.js';
 import { getGamificationSettings } from './settings.js';
@@ -117,6 +119,121 @@ meRouter.get('/profile', async (req, res) => {
     res.json({ profile });
   } catch (err) {
     console.error('me profile failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  }
+});
+
+const EXAM_TYPES = ['oge', 'ege'];
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MIN_PASSWORD = 8;
+
+// Правка своего профиля. Ученик распоряжается своими данными сам: имя, класс,
+// экзамен и целевая дата — это про него, а не про доступ. Роль, e-mail и
+// принадлежность планов остаются за администратором и здесь не меняются.
+meRouter.patch('/profile', async (req, res) => {
+  const body = req.body ?? {};
+
+  const sets = [];
+  const vals = [];
+
+  if ('grade' in body) {
+    if (!Number.isInteger(body.grade) || body.grade < 8 || body.grade > 11) {
+      return res.status(400).json({ error: 'Класс должен быть от 8 до 11' });
+    }
+    vals.push(body.grade);
+    sets.push(`grade = $${vals.length}`);
+  }
+
+  if ('exam_type' in body) {
+    if (!EXAM_TYPES.includes(body.exam_type)) {
+      return res.status(400).json({ error: 'Экзамен — ОГЭ или ЕГЭ' });
+    }
+    vals.push(body.exam_type);
+    sets.push(`exam_type = $${vals.length}`);
+  }
+
+  if ('target_exam_date' in body) {
+    const value = body.target_exam_date || null;
+    if (value !== null && !ISO_DATE.test(String(value))) {
+      return res.status(400).json({ error: 'Дата экзамена — в формате ГГГГ-ММ-ДД' });
+    }
+    vals.push(value);
+    sets.push(`target_exam_date = $${vals.length}`);
+  }
+
+  // ФИО живёт в users, остальное — в профиле, поэтому правим двумя запросами.
+  let fullName;
+  if ('full_name' in body) {
+    fullName = typeof body.full_name === 'string' ? body.full_name.trim() : '';
+    if (fullName.length === 0) return res.status(400).json({ error: 'Укажите имя' });
+    if (fullName.length > 255) return res.status(400).json({ error: 'Имя длиннее 255 символов' });
+  }
+
+  if (sets.length === 0 && fullName === undefined) {
+    return res.status(400).json({ error: 'Нет полей для изменения' });
+  }
+
+  const client = await pool.connect();
+  try {
+    const profile = await ownProfile(req.user.id);
+    if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    await client.query('BEGIN');
+    if (fullName !== undefined) {
+      await client.query('UPDATE users SET full_name = $1 WHERE id = $2', [fullName, req.user.id]);
+    }
+    if (sets.length > 0) {
+      vals.push(profile.id);
+      await client.query(
+        `UPDATE student_profiles SET ${sets.join(', ')}, updated_at = now()
+         WHERE id = $${vals.length}`,
+        vals,
+      );
+    }
+    await client.query('COMMIT');
+
+    res.json({ profile: await ownProfile(req.user.id) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('me profile update failed:', err);
+    res.status(500).json({ error: 'Внутренняя ошибка' });
+  } finally {
+    client.release();
+  }
+});
+
+// Смена собственного пароля — для любого вошедшего, не только ученика.
+// Старый пароль обязателен: сессию могли оставить открытой на чужом устройстве,
+// и без него подмена пароля стала бы захватом учётной записи.
+meRouter.post('/password', async (req, res) => {
+  const { current_password: current, new_password: next } = req.body ?? {};
+
+  if (typeof current !== 'string' || typeof next !== 'string') {
+    return res.status(400).json({ error: 'Укажите текущий и новый пароль' });
+  }
+  if (next.length < MIN_PASSWORD) {
+    return res.status(400).json({ error: `Пароль должен быть не короче ${MIN_PASSWORD} символов` });
+  }
+  if (next === current) {
+    return res.status(400).json({ error: 'Новый пароль совпадает с текущим' });
+  }
+
+  try {
+    const { rows } = await pool.query('SELECT password_hash FROM users WHERE id = $1', [
+      req.user.id,
+    ]);
+    const ok = rows[0] ? await verifyPassword(current, rows[0].password_hash) : false;
+    if (!ok) return res.status(400).json({ error: 'Текущий пароль неверен' });
+
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [
+      await hashPassword(next),
+      req.user.id,
+    ]);
+    // Сессия остаётся действительной: токен подписан секретом сервера и с
+    // паролем не связан, а разлогинивать человека после смены пароля незачем.
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('me password change failed:', err);
     res.status(500).json({ error: 'Внутренняя ошибка' });
   }
 });
