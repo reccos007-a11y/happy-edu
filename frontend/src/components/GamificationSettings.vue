@@ -28,8 +28,8 @@
             type="number"
             label="XP за освоенную тему"
             min="1"
-            style="max-width: 240px"
-            hint="Опыт ученика = это число × количество освоенных тем"
+            style="max-width: 320px"
+            hint="Опыт = это число × освоенные темы"
             persistent-hint
           />
           <v-text-field
@@ -38,8 +38,8 @@
             label="Порог зачёта теста, %"
             min="1"
             max="100"
-            style="max-width: 240px"
-            hint="Результат ниже порога отправляет тему на повторение"
+            style="max-width: 320px"
+            hint="Ниже порога — тема на повторение"
             persistent-hint
           />
         </div>

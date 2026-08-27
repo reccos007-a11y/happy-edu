@@ -14,9 +14,11 @@ async function findOrCreateSubject(client, { name, applies_to, has_levels, order
   );
   if (found.rows[0]) return found.rows[0].id;
 
+  // Демо-каталог сразу публикуем: он нужен, чтобы локально было что показать
+  // ученику, а черновик не виден ни в кабинете, ни в новых планах.
   const { rows } = await client.query(
-    `INSERT INTO subjects (name, applies_to, has_levels, order_index)
-     VALUES ($1, $2, $3, $4) RETURNING id`,
+    `INSERT INTO subjects (name, applies_to, has_levels, order_index, published_at)
+     VALUES ($1, $2, $3, $4, now()) RETURNING id`,
     [name, applies_to, has_levels, order_index],
   );
   return rows[0].id;
@@ -38,7 +40,8 @@ async function findOrCreateSection(client, subjectId, { title, order_index }) {
   }
 
   const { rows } = await client.query(
-    'INSERT INTO sections (subject_id, title, order_index) VALUES ($1, $2, $3) RETURNING id',
+    `INSERT INTO sections (subject_id, title, order_index, published_at)
+     VALUES ($1, $2, $3, now()) RETURNING id`,
     [subjectId, title, order_index],
   );
   return rows[0].id;
@@ -58,8 +61,8 @@ async function findOrCreateTopic(client, sectionId, topic, order_index) {
   }
 
   const { rows } = await client.query(
-    `INSERT INTO topics (section_id, grade, title, order_index, codifier_code, difficulty)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    `INSERT INTO topics (section_id, grade, title, order_index, codifier_code, difficulty, published_at)
+     VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id`,
     [
       sectionId,
       topic.grade,

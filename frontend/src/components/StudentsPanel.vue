@@ -26,7 +26,9 @@
             <th class="text-left" style="width: 90px">Класс</th>
             <th class="text-left" style="width: 90px">Экзамен</th>
             <th class="text-left" style="width: 140px">Дата экзамена</th>
-            <th style="width: 96px"></th>
+            <!-- Три кнопки по 36px: в 96px они не помещались и вставали
+                 столбиком, раздувая строку втрое. -->
+            <th style="width: 132px"></th>
           </tr>
         </thead>
         <tbody>
@@ -36,7 +38,7 @@
             <td class="tabular">{{ s.grade }}</td>
             <td>{{ s.exam_type === 'oge' ? 'ОГЭ' : 'ЕГЭ' }}</td>
             <td class="tabular">{{ s.target_exam_date || '—' }}</td>
-            <td class="text-right">
+            <td class="text-right actions">
               <v-btn
                 size="small"
                 variant="text"
@@ -281,3 +283,11 @@ function notify(text, color = 'success') {
 
 onMounted(loadStudents);
 </script>
+
+<style scoped>
+/* Кнопки действий держим в одну строку: перенос превращал строку таблицы
+   в три этажа. */
+.actions {
+  white-space: nowrap;
+}
+</style>
