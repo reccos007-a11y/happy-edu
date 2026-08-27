@@ -93,7 +93,7 @@
             Все планы
           </v-btn>
 
-          <div class="d-flex align-center flex-wrap ga-2 mb-4">
+          <div class="d-flex align-center flex-wrap ga-2 mb-2">
             <span class="text-h6">{{ plan.subject_name }}</span>
             <v-select
               :model-value="plan.status"
@@ -104,18 +104,86 @@
               style="max-width: 180px"
               @update:model-value="changePlanStatus"
             />
+            <v-spacer />
+            <v-switch
+              :model-value="plan.sequential"
+              color="primary"
+              density="compact"
+              hide-details
+              label="Строгий порядок"
+              @update:model-value="changeSequential"
+            />
           </div>
+          <p class="text-body-2 text-medium-emphasis mb-4">
+            {{
+              plan.sequential
+                ? 'Следующая тема открывается после зачёта предыдущей.'
+                : 'Ученик проходит темы в любом порядке.'
+            }}
+          </p>
 
           <v-list class="py-0" bg-color="transparent">
-            <v-list-item v-for="(i, idx) in items" :key="i.id" class="px-0 plan-item">
+            <v-list-item
+              v-for="(i, idx) in items"
+              :key="i.id"
+              class="px-0 plan-item"
+              :class="{ 'item-hidden': i.hidden_at }"
+            >
               <template #prepend>
                 <span class="idx tabular">{{ idx + 1 }}</span>
               </template>
-              <v-list-item-title class="text-body-1">{{ i.topic_title }}</v-list-item-title>
+              <v-list-item-title class="text-body-1">
+                {{ i.topic_title }}
+                <v-chip v-if="i.hidden_at" size="x-small" variant="flat" class="ml-1">
+                  скрыта
+                </v-chip>
+                <v-chip
+                  v-if="i.unlocked_at"
+                  size="x-small"
+                  variant="flat"
+                  color="primary"
+                  class="ml-1"
+                >
+                  открыта вручную
+                </v-chip>
+                <v-chip
+                  v-if="i.available_from"
+                  size="x-small"
+                  variant="tonal"
+                  color="warning"
+                  class="ml-1"
+                >
+                  с {{ formatDate(i.available_from) }}
+                </v-chip>
+              </v-list-item-title>
               <v-list-item-subtitle>
                 {{ i.section_title }}<span v-if="i.codifier_code"> · {{ i.codifier_code }}</span>
               </v-list-item-subtitle>
               <template #append>
+                <v-btn
+                  size="small"
+                  variant="text"
+                  :icon="i.unlocked_at ? 'mdi-lock-open-variant' : 'mdi-lock-open-outline'"
+                  :color="i.unlocked_at ? 'primary' : undefined"
+                  :title="i.unlocked_at ? 'Отменить ручное открытие' : 'Открыть тему вручную'"
+                  :loading="busyItem === `unlock-${i.id}`"
+                  @click="toggleUnlocked(i)"
+                />
+                <v-btn
+                  size="small"
+                  variant="text"
+                  icon="mdi-calendar-clock"
+                  title="Дата открытия"
+                  @click="openSchedule(i)"
+                />
+                <v-btn
+                  size="small"
+                  variant="text"
+                  :icon="i.hidden_at ? 'mdi-eye-outline' : 'mdi-eye-off-outline'"
+                  :title="i.hidden_at ? 'Вернуть ученику' : 'Скрыть у этого ученика'"
+                  :loading="busyItem === `hide-${i.id}`"
+                  @click="toggleHidden(i)"
+                />
                 <v-select
                   :model-value="i.status"
                   :items="ITEM_STATUS_ITEMS"
@@ -131,6 +199,33 @@
           </v-list>
         </template>
       </v-card-text>
+    </v-card>
+  </v-dialog>
+
+  <v-dialog v-model="schedule.open" max-width="420">
+    <v-card class="register-calm pa-2" border>
+      <v-card-title>Дата открытия темы</v-card-title>
+      <v-card-text>
+        <p class="text-body-2 text-medium-emphasis mb-4">
+          «{{ schedule.label }}» станет доступна ученику с этой даты. Пустое поле — без ограничения
+          по дате.
+        </p>
+        <v-text-field
+          v-model="schedule.value"
+          type="date"
+          label="Доступна с"
+          density="comfortable"
+          hide-details
+        />
+      </v-card-text>
+      <v-card-actions>
+        <v-btn variant="text" :disabled="schedule.saving" @click="clearSchedule">Убрать дату</v-btn>
+        <v-spacer />
+        <v-btn variant="text" @click="schedule.open = false">Отмена</v-btn>
+        <v-btn color="primary" variant="flat" :loading="schedule.saving" @click="saveSchedule">
+          Сохранить
+        </v-btn>
+      </v-card-actions>
     </v-card>
   </v-dialog>
 
@@ -174,12 +269,17 @@ const {
   updatePlan,
   deletePlan,
   setItemStatus,
+  setItemAccess,
 } = usePlans();
 
 const view = ref('list');
 const newSubjectId = ref(null);
 const creating = ref(false);
 const confirm = reactive({ open: false, id: null, label: '' });
+// Какая именно кнопка доступа сейчас в работе («действие-id»): крутилка должна
+// быть на нажатой, а не на всех сразу.
+const busyItem = ref('');
+const schedule = reactive({ open: false, item: null, label: '', value: '', saving: false });
 
 const subjectItems = computed(() =>
   subjects.value.map((s) => ({ title: s.name, value: Number(s.id) })),
@@ -262,6 +362,59 @@ async function changeItemStatus(item, status) {
   }
 }
 
+async function changeSequential(value) {
+  try {
+    await updatePlan(plan.value.id, { sequential: value });
+    plan.value.sequential = value;
+  } catch (e) {
+    error.value = e.message;
+  }
+}
+
+// Ответ сервера кладём в позицию целиком: он возвращает все отметки доступа,
+// и брать их оттуда надёжнее, чем угадывать на клиенте.
+async function applyAccess(item, payload, busyKey) {
+  busyItem.value = busyKey;
+  try {
+    const { item: updated } = await setItemAccess(item.id, payload);
+    Object.assign(item, updated);
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    busyItem.value = '';
+  }
+}
+
+const toggleUnlocked = (item) =>
+  applyAccess(item, { unlocked: !item.unlocked_at }, `unlock-${item.id}`);
+
+const toggleHidden = (item) => applyAccess(item, { hidden: !item.hidden_at }, `hide-${item.id}`);
+
+function openSchedule(item) {
+  Object.assign(schedule, {
+    open: true,
+    item,
+    label: item.topic_title,
+    // input[type=date] понимает только ГГГГ-ММ-ДД, а сервер отдаёт дату с временем.
+    value: item.available_from ? String(item.available_from).slice(0, 10) : '',
+    saving: false,
+  });
+}
+
+async function saveSchedule() {
+  schedule.saving = true;
+  await applyAccess(schedule.item, { available_from: schedule.value || '' }, '');
+  schedule.saving = false;
+  schedule.open = false;
+}
+
+async function clearSchedule() {
+  schedule.value = '';
+  await saveSchedule();
+}
+
+const formatDate = (value) => new Date(value).toLocaleDateString('ru-RU');
+
 function askDeletePlan(p) {
   Object.assign(confirm, { open: true, id: p.id, label: p.subject_name });
 }
@@ -287,6 +440,10 @@ async function doDeletePlan() {
 }
 .plan-row:hover {
   box-shadow: 0 6px 18px -8px rgba(75, 79, 203, 0.28);
+}
+/* Скрытая у ученика тема остаётся в списке персонала, но приглушена. */
+.item-hidden {
+  opacity: 0.55;
 }
 .plan-item + .plan-item {
   border-top: 1px solid var(--line, #e6e1d6);

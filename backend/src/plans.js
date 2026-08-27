@@ -131,7 +131,7 @@ plansRouter.get('/plans/:planId', canRead, async (req, res) => {
   try {
     const planResult = await pool.query(
       `SELECT p.id, p.subject_id, s.name AS subject_name, p.exam_type, p.status,
-              p.start_date, p.target_date
+              p.start_date, p.target_date, p.sequential
        FROM learning_plans p JOIN subjects s ON s.id = p.subject_id
        WHERE p.id = $1 AND p.deleted_at IS NULL`,
       [planId],
@@ -139,8 +139,10 @@ plansRouter.get('/plans/:planId', canRead, async (req, res) => {
     const plan = planResult.rows[0];
     if (!plan) return res.status(404).json({ error: 'План не найден' });
 
+    // Персоналу видны и скрытые от ученика позиции — иначе скрытую тему нельзя
+    // было бы вернуть обратно.
     const { rows: items } = await pool.query(
-      `SELECT i.id, i.status, i.order_index,
+      `SELECT i.id, i.status, i.order_index, i.available_from, i.unlocked_at, i.hidden_at,
               t.id AS topic_id, t.title AS topic_title, t.codifier_code, t.difficulty,
               sec.title AS section_title
        FROM learning_plan_items i
@@ -175,6 +177,15 @@ plansRouter.patch('/plans/:planId', canWrite, async (req, res) => {
     vals.push(body.target_date || null);
     sets.push(`target_date = $${vals.length}`);
   }
+  // Гейт последовательности — свойство плана: одному ученику строгий порядок
+  // полезен, другому мешает.
+  if ('sequential' in body) {
+    if (typeof body.sequential !== 'boolean') {
+      return res.status(400).json({ error: 'Порядок прохождения задаётся true или false' });
+    }
+    vals.push(body.sequential);
+    sets.push(`sequential = $${vals.length}`);
+  }
   if (sets.length === 0) return res.status(400).json({ error: 'Нет полей для изменения' });
 
   vals.push(planId);
@@ -182,7 +193,7 @@ plansRouter.patch('/plans/:planId', canWrite, async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE learning_plans SET ${sets.join(', ')}, updated_at = now()
        WHERE id = $${vals.length} AND deleted_at IS NULL
-       RETURNING id, status, target_date`,
+       RETURNING id, status, target_date, sequential`,
       vals,
     );
     if (!rows[0]) return res.status(404).json({ error: 'План не найден' });
@@ -211,21 +222,63 @@ plansRouter.delete('/plans/:planId', canWrite, async (req, res) => {
   }
 });
 
-// Статус темы в плане. completed проставляет отметку времени завершения.
+// Тема в плане: статус прохождения и доступ к ней у этого ученика.
+// Статус и доступ правятся одним запросом, но независимо — менять статус,
+// чтобы просто открыть тему, было бы подменой смысла.
 plansRouter.patch('/plan-items/:itemId', canWrite, async (req, res) => {
   const itemId = parseId(req.params.itemId);
   if (itemId === null) return res.status(400).json({ error: 'Некорректный id' });
-  const { status } = req.body ?? {};
-  if (!ITEM_STATUS.includes(status)) return res.status(400).json({ error: 'Некорректный статус' });
+  const body = req.body ?? {};
 
-  const completedAt = status === 'completed' ? 'now()' : 'NULL';
+  const sets = [];
+  const vals = [];
+
+  if ('status' in body) {
+    if (!ITEM_STATUS.includes(body.status)) {
+      return res.status(400).json({ error: 'Некорректный статус' });
+    }
+    vals.push(body.status);
+    sets.push(`status = $${vals.length}`);
+    // completed_at ведём вместе со статусом: отметка времени без статуса
+    // (и наоборот) сделала бы прогресс противоречивым.
+    sets.push(`completed_at = ${body.status === 'completed' ? 'now()' : 'NULL'}`);
+  }
+
+  // Ручное открытие: тема доступна в обход гейта и расписания.
+  if ('unlocked' in body) {
+    if (typeof body.unlocked !== 'boolean') {
+      return res.status(400).json({ error: 'Открытие темы задаётся true или false' });
+    }
+    sets.push(`unlocked_at = ${body.unlocked ? 'now()' : 'NULL'}`);
+  }
+
+  // Скрытие — только у этого ученика; на других план не влияет.
+  if ('hidden' in body) {
+    if (typeof body.hidden !== 'boolean') {
+      return res.status(400).json({ error: 'Скрытие темы задаётся true или false' });
+    }
+    sets.push(`hidden_at = ${body.hidden ? 'now()' : 'NULL'}`);
+  }
+
+  if ('available_from' in body) {
+    const value = body.available_from || null;
+    if (value !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+      return res.status(400).json({ error: 'Дата открытия — в формате ГГГГ-ММ-ДД' });
+    }
+    vals.push(value);
+    sets.push(`available_from = $${vals.length}`);
+  }
+
+  if (sets.length === 0) return res.status(400).json({ error: 'Нет полей для изменения' });
+
+  vals.push(itemId);
   try {
     const { rows } = await pool.query(
       `UPDATE learning_plan_items
-       SET status = $1, completed_at = ${completedAt}, updated_at = now()
-       WHERE id = $2
-       RETURNING id, status, completed_at`,
-      [status, itemId],
+       SET ${sets.join(', ')}, updated_at = now()
+       WHERE id = $${vals.length}
+       RETURNING id, status, completed_at, unlocked_at, hidden_at, available_from`,
+      vals,
     );
     if (!rows[0]) return res.status(404).json({ error: 'Тема плана не найдена' });
     res.json({ item: rows[0] });
