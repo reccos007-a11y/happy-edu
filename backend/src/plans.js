@@ -77,10 +77,14 @@ plansRouter.post('/students/:userId/plans', canWrite, async (req, res) => {
     if (!profile) return res.status(404).json({ error: 'Ученик не найден' });
 
     const subject = await client.query(
-      'SELECT id FROM subjects WHERE id = $1 AND deleted_at IS NULL',
+      'SELECT id, published_at FROM subjects WHERE id = $1 AND deleted_at IS NULL',
       [subjectId],
     );
     if (!subject.rows[0]) return res.status(404).json({ error: 'Предмет не найден' });
+    // По черновику план вышел бы пустым и молча: лучше сказать прямо.
+    if (!subject.rows[0].published_at) {
+      return res.status(400).json({ error: 'Предмет не опубликован — план будет пустым' });
+    }
 
     const examType = req.body?.exam_type ?? profile.exam_type;
 
@@ -92,13 +96,16 @@ plansRouter.post('/students/:userId/plans', canWrite, async (req, res) => {
     );
     const planId = planRows[0].id;
 
-    // Наполняем темами предмета в порядке разделов и тем.
+    // Наполняем опубликованными темами предмета в порядке разделов и тем.
+    // Черновики в план не попадают: иначе ученик получил бы пункт, который в
+    // кабинете не отображается, и план бы никогда не закрылся.
     await client.query(
       `INSERT INTO learning_plan_items (plan_id, topic_id, order_index)
        SELECT $1, t.id, row_number() OVER (ORDER BY sec.order_index, sec.id, t.order_index, t.id) - 1
        FROM topics t
        JOIN sections sec ON sec.id = t.section_id AND sec.deleted_at IS NULL
-       WHERE sec.subject_id = $2 AND t.deleted_at IS NULL`,
+       WHERE sec.subject_id = $2 AND t.deleted_at IS NULL
+         AND t.published_at IS NOT NULL AND sec.published_at IS NOT NULL`,
       [planId, subjectId],
     );
     await client.query('COMMIT');

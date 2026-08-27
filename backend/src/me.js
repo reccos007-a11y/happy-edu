@@ -6,14 +6,13 @@ import express from 'express';
 import { requireAuth } from './auth.js';
 import { pool } from './db.js';
 import { STUDENT_ROLE } from './roles.js';
-import { XP_PER_TOPIC, levelFromXp, streakFromDates, computeBadges } from './gamification.js';
+import { levelFromXp, streakFromDates, computeBadges } from './gamification.js';
+import { getGamificationSettings } from './settings.js';
+import { VISIBLE_TOPICS_CTE } from './visibility.js';
 
 export const meRouter = express.Router();
 
 meRouter.use(requireAuth);
-
-// Порог зачёта тематического теста.
-const PASS_PERCENT = 70;
 
 const normalize = (s) =>
   String(s ?? '')
@@ -42,16 +41,18 @@ async function ownProfile(userId) {
 //      не начатую тему нельзя, пока предыдущая не зачтена. Уже начатые и
 //      зачтённые не блокируются — иначе провал теста запер бы без пересдачи.
 //
-// Нумерация и «предыдущая» считаются только по нескрытым позициям: скрытая
-// тема выпадает из цепочки, а не запирает следующую навсегда.
+// В цепочку попадают только опубликованные (visible_topics) и нескрытые
+// позиции: и снятая с публикации, и скрытая у ученика тема выпадают из
+// нумерации, а не запирают следующую навсегда.
 async function topicAccess(profileId, topicId) {
   const { rows } = await pool.query(
-    `WITH plan_items AS (
+    `WITH ${VISIBLE_TOPICS_CTE},
+     plan_items AS (
        SELECT i.id, i.plan_id, i.topic_id, i.status, i.order_index,
               i.hidden_at, i.unlocked_at, i.available_from, p.sequential
        FROM learning_plan_items i
        JOIN learning_plans p ON p.id = i.plan_id
-       JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+       JOIN visible_topics vt ON vt.id = i.topic_id
        WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
      ),
      visible AS (
@@ -98,6 +99,17 @@ function accessDenied(res, access) {
   return res.status(403).json({ error: 'Сначала завершите предыдущую тему' });
 }
 
+// Тема доступна ученику, только пока опубликована вся её цепочка. Проверяем
+// отдельно от гейта последовательности: прямая ссылка на тест не должна
+// обходить снятие с публикации.
+async function topicVisible(topicId) {
+  const { rows } = await pool.query(
+    `WITH ${VISIBLE_TOPICS_CTE} SELECT id FROM visible_topics WHERE id = $1`,
+    [topicId],
+  );
+  return Boolean(rows[0]);
+}
+
 meRouter.get('/profile', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
@@ -120,13 +132,14 @@ meRouter.get('/overview', async (req, res) => {
     const [totalsRes, datesRes, bestRes, resumeRes] = await Promise.all([
       // Итоги по всем активным планам ученика + число полностью пройденных предметов.
       pool.query(
-        `WITH plan_stats AS (
+        `WITH ${VISIBLE_TOPICS_CTE},
+         plan_stats AS (
            SELECT p.id,
-                  count(t.id)::int AS tot,
-                  count(t.id) FILTER (WHERE i.status = 'completed')::int AS done
+                  count(vt.id)::int AS tot,
+                  count(vt.id) FILTER (WHERE i.status = 'completed')::int AS done
            FROM learning_plans p
            JOIN learning_plan_items i ON i.plan_id = p.id AND i.hidden_at IS NULL
-           JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+           JOIN visible_topics vt ON vt.id = i.topic_id
            WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
            GROUP BY p.id
          )
@@ -153,12 +166,14 @@ meRouter.get('/overview', async (req, res) => {
       // Скрытые и ещё не открытые по расписанию сюда не попадают — предлагать
       // кнопку, которая упрётся в отказ, некуда.
       pool.query(
-        `SELECT p.id AS plan_id, s.name AS subject_name,
+        `WITH ${VISIBLE_TOPICS_CTE}
+         SELECT p.id AS plan_id, s.name AS subject_name,
                 t.id AS topic_id, t.title AS topic_title, sec.title AS section_title,
                 i.status
          FROM learning_plans p
          JOIN learning_plan_items i ON i.plan_id = p.id
-         JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+         JOIN visible_topics vt ON vt.id = i.topic_id
+         JOIN topics t ON t.id = vt.id
          JOIN sections sec ON sec.id = t.section_id
          JOIN subjects s ON s.id = p.subject_id
          WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
@@ -177,15 +192,19 @@ meRouter.get('/overview', async (req, res) => {
     const subjectsCompleted = totals.subjects_completed;
     const streakDays = streakFromDates(datesRes.rows.map((r) => r.d));
     const bestScore = Number(bestRes.rows[0].best);
-    const xp = topicsCompleted * XP_PER_TOPIC;
+    const rules = await getGamificationSettings();
+    const xp = topicsCompleted * rules.xpPerTopic;
 
     const stats = {
-      ...levelFromXp(xp),
+      ...levelFromXp(xp, rules.levels),
       topicsCompleted,
       topicsTotal: totals.topics_total,
       subjectsCompleted,
       streakDays,
-      badges: computeBadges({ topicsCompleted, subjectsCompleted, streakDays, bestScore }),
+      badges: computeBadges(
+        { topicsCompleted, subjectsCompleted, streakDays, bestScore },
+        rules.badges,
+      ),
     };
 
     res.json({ profile, stats, resume: resumeRes.rows[0] ?? null });
@@ -201,14 +220,15 @@ meRouter.get('/plans', async (req, res) => {
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
 
     const { rows } = await pool.query(
-      `SELECT p.id, p.subject_id, s.name AS subject_name, p.exam_type, p.status,
+      `WITH ${VISIBLE_TOPICS_CTE}
+       SELECT p.id, p.subject_id, s.name AS subject_name, p.exam_type, p.status,
               p.start_date, p.target_date,
-              count(ti.id)::int AS topics_total,
-              count(ti.id) FILTER (WHERE i.status = 'completed')::int AS topics_done
+              count(vt.id)::int AS topics_total,
+              count(vt.id) FILTER (WHERE i.status = 'completed')::int AS topics_done
        FROM learning_plans p
        JOIN subjects s ON s.id = p.subject_id
        LEFT JOIN learning_plan_items i ON i.plan_id = p.id AND i.hidden_at IS NULL
-       LEFT JOIN topics ti ON ti.id = i.topic_id AND ti.deleted_at IS NULL
+       LEFT JOIN visible_topics vt ON vt.id = i.topic_id
        WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
        GROUP BY p.id, s.name
        ORDER BY p.created_at`,
@@ -243,7 +263,8 @@ meRouter.get('/plans/:planId', async (req, res) => {
     // Скрытые позиции отсеиваются в WHERE, то есть до оконных функций, —
     // поэтому в цепочке «предыдущая тема» они не участвуют.
     const { rows: items } = await pool.query(
-      `SELECT i.id, i.status, i.order_index, i.available_from, i.unlocked_at,
+      `WITH ${VISIBLE_TOPICS_CTE}
+       SELECT i.id, i.status, i.order_index, i.available_from, i.unlocked_at,
               t.id AS topic_id, t.title AS topic_title, t.codifier_code, t.difficulty,
               sec.title AS section_title,
               -- Причина закрытия в том же порядке, что и в topicAccess:
@@ -259,7 +280,8 @@ meRouter.get('/plans/:planId', async (req, res) => {
                 ELSE 'sequence'
               END AS lock_reason
        FROM learning_plan_items i
-       JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+       JOIN visible_topics vt ON vt.id = i.topic_id
+       JOIN topics t ON t.id = vt.id
        JOIN sections sec ON sec.id = t.section_id
        WHERE i.plan_id = $1 AND i.hidden_at IS NULL
        WINDOW w AS (ORDER BY i.order_index, i.id)
@@ -283,6 +305,10 @@ meRouter.get('/topics/:topicId/test', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    // Публикация и доступ в плане — разные вещи: первая прячет тему у всех,
+    // второй управляет ею у конкретного ученика. Проверяем обе.
+    if (!(await topicVisible(topicId))) return res.status(404).json({ error: 'Тема не найдена' });
 
     const access = await topicAccess(profile.id, topicId);
     if (access.locked) return accessDenied(res, access);
@@ -322,6 +348,10 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    // Публикация и доступ в плане — разные вещи: первая прячет тему у всех,
+    // второй управляет ею у конкретного ученика. Проверяем обе.
+    if (!(await topicVisible(topicId))) return res.status(404).json({ error: 'Тема не найдена' });
 
     const access = await topicAccess(profile.id, topicId);
     if (access.locked) return accessDenied(res, access);
@@ -363,8 +393,10 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
       results[q.id] = ok;
     }
 
+    // Правила читаем до BEGIN: запрос идёт мимо транзакции, на отдельном соединении.
+    const rules = await getGamificationSettings();
     const percent = Math.round((correct / questions.length) * 100);
-    const passed = percent >= PASS_PERCENT;
+    const passed = percent >= rules.passPercent;
 
     // Позиция плана этого ученика для темы — чтобы привязать попытку и отметить зачёт.
     const { rows: planItem } = await client.query(
@@ -411,9 +443,12 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
       [profile.id],
     );
     const completedAfter = cnt[0].c;
-    const xpAwarded = newlyCompleted ? XP_PER_TOPIC : 0;
-    const levelBefore = levelFromXp((completedAfter - (newlyCompleted ? 1 : 0)) * XP_PER_TOPIC);
-    const levelAfter = levelFromXp(completedAfter * XP_PER_TOPIC);
+    const xpAwarded = newlyCompleted ? rules.xpPerTopic : 0;
+    const levelBefore = levelFromXp(
+      (completedAfter - (newlyCompleted ? 1 : 0)) * rules.xpPerTopic,
+      rules.levels,
+    );
+    const levelAfter = levelFromXp(completedAfter * rules.xpPerTopic, rules.levels);
 
     res.json({
       percent,

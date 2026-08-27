@@ -44,15 +44,18 @@ async function seed() {
     [user.id],
   );
   const { rows: subj } = await pool.query(
-    "INSERT INTO subjects (name, applies_to) VALUES ('Биология', 'oge') RETURNING id",
+    "INSERT INTO subjects (name, applies_to, published_at) VALUES ('Биология', 'oge', now()) RETURNING id",
   );
   const { rows: sec } = await pool.query(
-    "INSERT INTO sections (subject_id, title, order_index) VALUES ($1, 'Раздел', 0) RETURNING id",
+    `INSERT INTO sections (subject_id, title, order_index, published_at)
+     VALUES ($1, 'Раздел', 0, now()) RETURNING id`,
     [subj[0].id],
   );
   const { rows: topics } = await pool.query(
-    `INSERT INTO topics (section_id, grade, title, order_index)
-     VALUES ($1, 9, 'Тема 1', 0), ($1, 9, 'Тема 2', 1), ($1, 9, 'Тема 3', 2) RETURNING id`,
+    // Публикуем сразу: этот файл про доступ внутри плана, а не про публикацию.
+    `INSERT INTO topics (section_id, grade, title, order_index, published_at)
+     VALUES ($1, 9, 'Тема 1', 0, now()), ($1, 9, 'Тема 2', 1, now()),
+            ($1, 9, 'Тема 3', 2, now()) RETURNING id`,
     [sec[0].id],
   );
   const { rows: plan } = await pool.query(

@@ -37,24 +37,29 @@ async function loggedInClient(role = 'user', email = 'student@example.com') {
 
 // Небольшой предмет с двумя разделами; темы намеренно вставлены не по порядку,
 // чтобы проверить сортировку по order_index.
+// Контент сразу опубликован: эти тесты про сам каталог, а не про публикацию
+// (её проверяет publishing.test.js). Без published_at всё было бы черновиком
+// и не показалось бы никому, кроме персонала.
 async function seedSubject() {
   const { rows: subj } = await pool.query(
-    `INSERT INTO subjects (name, applies_to, order_index) VALUES ('Обществознание', 'oge', 0)
+    `INSERT INTO subjects (name, applies_to, order_index, published_at)
+     VALUES ('Обществознание', 'oge', 0, now())
      RETURNING id`,
   );
   const subjectId = subj[0].id;
 
   const { rows: sec } = await pool.query(
-    `INSERT INTO sections (subject_id, title, order_index)
-     VALUES ($1, 'Человек и общество', 0), ($1, 'Экономика', 1) RETURNING id, order_index`,
+    `INSERT INTO sections (subject_id, title, order_index, published_at)
+     VALUES ($1, 'Человек и общество', 0, now()), ($1, 'Экономика', 1, now())
+     RETURNING id, order_index`,
     [subjectId],
   );
   const first = sec.find((s) => s.order_index === 0).id;
 
   await pool.query(
-    `INSERT INTO topics (section_id, grade, title, order_index, codifier_code, difficulty)
-     VALUES ($1, 9, 'Вторая тема', 1, '1.2', 'advanced'),
-            ($1, 9, 'Первая тема', 0, '1.1', 'base')`,
+    `INSERT INTO topics (section_id, grade, title, order_index, codifier_code, difficulty, published_at)
+     VALUES ($1, 9, 'Вторая тема', 1, '1.2', 'advanced', now()),
+            ($1, 9, 'Первая тема', 0, '1.1', 'base', now())`,
     [first],
   );
 
@@ -225,14 +230,14 @@ describe('управление каталогом', () => {
 // Тема напрямую в БД — для тестов материалов.
 async function makeTopic() {
   const { rows: subj } = await pool.query(
-    "INSERT INTO subjects (name, applies_to) VALUES ('Биология', 'both') RETURNING id",
+    "INSERT INTO subjects (name, applies_to, published_at) VALUES ('Биология', 'both', now()) RETURNING id",
   );
   const { rows: sec } = await pool.query(
-    "INSERT INTO sections (subject_id, title) VALUES ($1, 'Раздел') RETURNING id",
+    "INSERT INTO sections (subject_id, title, published_at) VALUES ($1, 'Раздел', now()) RETURNING id",
     [subj[0].id],
   );
   const { rows: topic } = await pool.query(
-    "INSERT INTO topics (section_id, grade, title) VALUES ($1, 8, 'Клетка') RETURNING id",
+    "INSERT INTO topics (section_id, grade, title, published_at) VALUES ($1, 8, 'Клетка', now()) RETURNING id",
     [sec[0].id],
   );
   return topic[0].id;
