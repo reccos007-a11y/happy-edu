@@ -36,6 +36,11 @@ services:
         condition: service_healthy
     ports:
       - '127.0.0.1:3000:3000'
+    volumes:
+      # Тесты не копируются в образ (в проде им делать нечего), но команда
+      # `docker compose exec backend npm test` из README должна работать —
+      # монтируем их только в локальной сборке, на чтение.
+      - ./backend/test:/app/test:ro
 
   frontend:
     build: ./frontend
