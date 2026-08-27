@@ -194,6 +194,13 @@
       </v-card>
     </template>
 
+    <!-- Страховка: если правила почему-то не загрузились, экран не должен
+         выглядеть как «настроек не существует» — только кнопки без формы. -->
+    <v-alert v-else type="warning" variant="tonal">
+      Не удалось загрузить правила. Обновите страницу — если не поможет, проверьте доступ к разделу
+      настроек.
+    </v-alert>
+
     <v-dialog v-model="confirmReset" max-width="440">
       <v-card class="register-calm pa-2" border>
         <v-card-title>Сбросить настройки?</v-card-title>
@@ -232,8 +239,13 @@ const metricItems = computed(() =>
   Object.entries(metrics.value).map(([value, title]) => ({ value, title })),
 );
 
+// Клонируем через JSON, а не structuredClone: ref оборачивает объект в
+// реактивный Proxy, а его structuredClone клонировать не умеет — бросает
+// DataCloneError, из-за чего draft оставался пустым и форма не отрисовывалась
+// вовсе (были видны только заголовок и кнопки). Настройки — чистый JSON,
+// так что копия получается полной.
 function makeDraft() {
-  draft.value = settings.value ? structuredClone(settings.value) : null;
+  draft.value = settings.value ? JSON.parse(JSON.stringify(settings.value)) : null;
 }
 
 function notify(text, color = 'success') {
