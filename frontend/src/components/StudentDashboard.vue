@@ -11,7 +11,19 @@
       <template v-if="!openPlanId">
         <div class="home-head">
           <div>
-            <h1 class="font-serif greeting">Привет, {{ firstName }}!</h1>
+            <div class="greeting-row">
+              <button class="avatar-btn" title="Мой профиль" @click="profileOpen = true">
+                <UserAvatar
+                  :user-id="user.id"
+                  :has-avatar="user.has_avatar"
+                  :name="profile.full_name"
+                  :email="user.email"
+                  :size="56"
+                  :version="avatarVersion"
+                />
+              </button>
+              <h1 class="font-serif greeting">Привет, {{ firstName }}!</h1>
+            </div>
             <p class="text-body-1 text-medium-emphasis mb-4">{{ encouragement }}</p>
             <div class="profile-strip">
               <span class="pill">{{ profile.grade }} класс</span>
@@ -19,6 +31,7 @@
               <span v-if="daysLeft !== null" class="pill accent">
                 до экзамена {{ daysLeft }} {{ dayWord(daysLeft) }}
               </span>
+              <button class="pill pill-btn" @click="profileOpen = true">Мой профиль</button>
             </div>
           </div>
 
@@ -199,13 +212,24 @@
         </div>
       </template>
     </template>
+
+    <StudentProfileDialog
+      :open="profileOpen"
+      :profile="profile"
+      :user="user"
+      @close="profileOpen = false"
+      @saved="onProfileSaved"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import MaterialView from './MaterialView.vue';
+import StudentProfileDialog from './StudentProfileDialog.vue';
 import TopicTest from './TopicTest.vue';
+import UserAvatar from './UserAvatar.vue';
+import { useAuth } from '../composables/useAuth';
 import { useMe } from '../composables/useMe';
 import { useMaterials } from '../composables/useMaterials';
 
@@ -223,6 +247,18 @@ const {
   refreshStats,
 } = useMe();
 const { materials, loading: materialsLoading, loadMaterials } = useMaterials();
+const { user, refresh: refreshUser } = useAuth();
+
+const profileOpen = ref(false);
+// Растёт после смены фото: заставляет перезапросить картинку мимо кэша.
+const avatarVersion = ref(0);
+
+// После правки профиля перечитываем и сессию: в ней лежит признак аватара,
+// от которого зависит, показывать фото или инициалы.
+async function onProfileSaved() {
+  avatarVersion.value += 1;
+  await Promise.all([loadOverview(), refreshUser()]);
+}
 
 const openPlanId = ref(null);
 const expandedTopic = ref(null);
@@ -390,6 +426,31 @@ onMounted(loadOverview);
 <style scoped>
 .student-home {
   max-width: 940px;
+}
+.greeting-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.avatar-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  line-height: 0;
+}
+.avatar-btn:hover {
+  box-shadow: 0 0 0 3px rgba(94, 92, 230, 0.18);
+}
+.pill-btn {
+  cursor: pointer;
+  border: 1px dashed rgba(0, 0, 0, 0.22);
+  background: none;
+  font: inherit;
+}
+.pill-btn:hover {
+  border-style: solid;
 }
 .greeting {
   font-size: clamp(28px, 5vw, 38px);

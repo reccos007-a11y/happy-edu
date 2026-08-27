@@ -10,11 +10,14 @@ import { runMigrations } from '../src/migrate.js';
 after(() => pool.end());
 
 beforeEach(async () => {
-  await pool.query(
-    `DROP TABLE IF EXISTS test_attempts, question_options, questions, learning_materials,
-       learning_plan_items, learning_plans, student_profiles, topics, sections, subjects,
-       users, schema_migrations CASCADE`,
-  );
+  // Сносим схему целиком, а не список таблиц. Перечисление приходилось
+  // дополнять при каждой новой миграции, и забытая таблица оставалась жить
+  // без своих внешних ключей: `DROP TABLE users CASCADE` убирает ссылку на
+  // users, а `CREATE TABLE IF NOT EXISTS` её потом не восстанавливает.
+  // Дальше TRUNCATE users CASCADE переставал чистить такую таблицу, и её
+  // строки доставались следующим тестам — с переиспользованными id.
+  await pool.query('DROP SCHEMA public CASCADE');
+  await pool.query('CREATE SCHEMA public');
 });
 
 describe('раннер миграций', () => {
@@ -35,6 +38,7 @@ describe('раннер миграций', () => {
         '008_app_settings.sql',
         '009_content_publishing.sql',
         '010_plan_access.sql',
+        '011_user_avatars.sql',
       ],
     );
   });
@@ -44,7 +48,7 @@ describe('раннер миграций', () => {
     await runMigrations();
 
     const { rows } = await pool.query('SELECT count(*)::int AS c FROM schema_migrations');
-    assert.equal(rows[0].c, 10);
+    assert.equal(rows[0].c, 11);
   });
 
   it('ложится на базу, созданную прежней версией, сохраняя данные', async () => {

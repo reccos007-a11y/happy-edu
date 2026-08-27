@@ -7,6 +7,7 @@ import express from 'express';
 import { adminRouter } from './admin.js';
 import { analyticsRouter } from './analytics.js';
 import { authRouter } from './auth.js';
+import { avatarsRouter } from './avatars.js';
 import { catalogRouter } from './catalog.js';
 import { pool } from './db.js';
 import { meRouter } from './me.js';
@@ -18,6 +19,10 @@ export function createApp() {
   const app = express();
 
   app.use(cors({ origin: true, credentials: true }));
+  // Аватар приходит как data:URL и не влезает в стандартные 100 КБ. Поднимаем
+  // лимит только для этого маршрута: он разбирает тело первым, а общий
+  // express.json() ниже уже распарсенное пропускает.
+  app.use('/api/avatars', express.json({ limit: '1mb' }));
   app.use(express.json());
   app.use(cookieParser());
 
@@ -42,6 +47,7 @@ export function createApp() {
   app.use('/api/admin', plansRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/catalog', catalogRouter);
+  app.use('/api/avatars', avatarsRouter);
 
   return app;
 }

@@ -4,6 +4,13 @@
       <div class="navbar-inner">
         <AppLogo :size="30" theme="dark" />
         <div v-if="user" class="navbar-right">
+          <UserAvatar
+            :user-id="user.id"
+            :has-avatar="user.has_avatar"
+            :name="user.full_name"
+            :email="user.email"
+            :size="32"
+          />
           <span class="navbar-email d-none d-sm-inline">{{ user.email }}</span>
           <span v-if="isAdmin" class="navbar-chip">Администратор</span>
           <button class="navbar-logout" :disabled="leaving" @click="signOut">Выйти</button>
@@ -75,6 +82,7 @@ import AuthCard from './components/AuthCard.vue';
 import GamificationSettings from './components/GamificationSettings.vue';
 import StudentDashboard from './components/StudentDashboard.vue';
 import StudentsPanel from './components/StudentsPanel.vue';
+import UserAvatar from './components/UserAvatar.vue';
 import SubjectCatalog from './components/SubjectCatalog.vue';
 import { useAuth } from './composables/useAuth';
 
