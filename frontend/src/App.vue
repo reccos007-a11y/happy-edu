@@ -34,6 +34,7 @@
             <v-tab value="catalog">Каталог</v-tab>
             <v-tab v-if="canManageStudents" value="students">Ученики</v-tab>
             <v-tab v-if="canSeeAnalytics" value="analytics">Аналитика</v-tab>
+            <v-tab v-if="canManageSettings" value="settings">Настройки</v-tab>
             <v-tab value="account">Мой профиль</v-tab>
           </v-container>
         </v-tabs>
@@ -44,6 +45,8 @@
           <StudentsPanel v-else-if="tab === 'students' && canManageStudents" />
 
           <AnalyticsPanel v-else-if="tab === 'analytics' && canSeeAnalytics" />
+
+          <GamificationSettings v-else-if="tab === 'settings' && canManageSettings" />
 
           <template v-else>
             <v-card max-width="480" class="pa-6 mb-8 register-calm" border>
@@ -69,6 +72,7 @@ import AdminPanel from './components/AdminPanel.vue';
 import AnalyticsPanel from './components/AnalyticsPanel.vue';
 import AppLogo from './components/AppLogo.vue';
 import AuthCard from './components/AuthCard.vue';
+import GamificationSettings from './components/GamificationSettings.vue';
 import StudentDashboard from './components/StudentDashboard.vue';
 import StudentsPanel from './components/StudentsPanel.vue';
 import SubjectCatalog from './components/SubjectCatalog.vue';
@@ -78,6 +82,7 @@ const { user, loading, isAdmin, can, refresh, logout } = useAuth();
 
 const canManageStudents = computed(() => can('users:write'));
 const canSeeAnalytics = computed(() => can('users:read'));
+const canManageSettings = computed(() => can('settings:manage'));
 const isStudent = computed(() => user.value?.role === 'student');
 const tab = ref('catalog');
 const status = ref('проверка backend...');

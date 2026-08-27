@@ -157,14 +157,12 @@
               <div class="topic-main">
                 <div class="topic-title">{{ i.topic_title }}</div>
                 <div class="topic-sub">
-                  {{
-                    i.locked
-                      ? 'Завершите предыдущую тему, чтобы открыть'
-                      : i.section_title + ' · +40 XP'
-                  }}
+                  {{ i.locked ? lockHint(i) : i.section_title + ' · +40 XP' }}
                 </div>
               </div>
-              <span v-if="i.locked" class="status-chip locked">🔒 недоступна</span>
+              <span v-if="i.locked" class="status-chip locked">
+                {{ i.lock_reason === 'schedule' ? '🗓 по расписанию' : '🔒 недоступна' }}
+              </span>
               <span v-else class="status-chip" :class="i.status">{{
                 itemStatus(i.status).label
               }}</span>
@@ -240,7 +238,17 @@ async function toggleTopic(topicId) {
   await loadMaterials(topicId);
 }
 
-// Заблокированную тему открыть нельзя — сначала нужно завершить предыдущую.
+// Почему тема закрыта. Причину считает сервер, здесь только формулировка:
+// «откроется в четверг» и «сначала закрой предыдущую» — разные новости для
+// ученика, и общий замок вместо этого выглядит поломкой.
+function lockHint(item) {
+  if (item.lock_reason === 'schedule' && item.available_from) {
+    return `Откроется ${new Date(item.available_from).toLocaleDateString('ru-RU')}`;
+  }
+  return 'Завершите предыдущую тему, чтобы открыть';
+}
+
+// Заблокированную тему открыть нельзя — причина показана в подписи.
 function onTopicClick(item) {
   if (item.locked) return;
   toggleTopic(item.topic_id);

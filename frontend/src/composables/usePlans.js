@@ -56,6 +56,11 @@ export function usePlans() {
   const deletePlan = (planId) => api(`/plans/${planId}`, { method: 'DELETE' });
   const setItemStatus = (itemId, status) =>
     api(`/plan-items/${itemId}`, { method: 'PATCH', body: { status } });
+  // Доступ к теме: ручное открытие, скрытие у этого ученика, дата открытия.
+  // Отдельно от статуса — менять «пройденность», чтобы просто открыть тему,
+  // означало бы врать про прогресс.
+  const setItemAccess = (itemId, payload) =>
+    api(`/plan-items/${itemId}`, { method: 'PATCH', body: payload });
 
   return {
     plans,
@@ -69,5 +74,6 @@ export function usePlans() {
     updatePlan,
     deletePlan,
     setItemStatus,
+    setItemAccess,
   };
 }

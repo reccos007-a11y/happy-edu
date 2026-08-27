@@ -26,8 +26,21 @@
             examLabel(subject.applies_to)
           }}</v-chip>
           <v-chip v-if="subject.has_levels" size="small" variant="tonal">база / профиль</v-chip>
+          <v-chip v-if="!subject.published_at" size="small" variant="flat" color="warning">
+            Черновик
+          </v-chip>
           <template v-if="writable">
             <v-spacer />
+            <v-btn
+              size="small"
+              variant="tonal"
+              :color="subject.published_at ? undefined : 'primary'"
+              :loading="publishing === `subject-${subject.id}`"
+              class="mr-1"
+              @click="togglePublish('subject', subject)"
+            >
+              {{ subject.published_at ? 'Снять с публикации' : 'Опубликовать' }}
+            </v-btn>
             <v-btn size="small" variant="text" icon="mdi-pencil" @click="editSubject(subject)" />
             <v-btn
               size="small"
@@ -58,6 +71,15 @@
           <v-expansion-panel v-for="section in sections" :key="section.id" :value="section.id">
             <v-expansion-panel-title>
               <span class="text-subtitle-1 font-weight-medium">{{ section.title }}</span>
+              <v-chip
+                v-if="!section.published_at"
+                size="x-small"
+                variant="flat"
+                color="warning"
+                class="ml-2"
+              >
+                Черновик
+              </v-chip>
               <template #actions="{ expanded }">
                 <span class="text-caption text-medium-emphasis mr-2"
                   >{{ section.topics.length }} тем</span
@@ -74,6 +96,15 @@
                   @click="createTopic(section)"
                 >
                   Тема
+                </v-btn>
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  :prepend-icon="section.published_at ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+                  :loading="publishing === `section-${section.id}`"
+                  @click="togglePublish('section', section)"
+                >
+                  {{ section.published_at ? 'Скрыть' : 'Опубликовать' }}
                 </v-btn>
                 <v-btn
                   size="x-small"
@@ -101,7 +132,18 @@
                     }}</span>
                     <span v-else class="topic-code text-disabled">—</span>
                   </template>
-                  <v-list-item-title class="text-body-1">{{ topic.title }}</v-list-item-title>
+                  <v-list-item-title class="text-body-1">
+                    {{ topic.title }}
+                    <v-chip
+                      v-if="!topic.published_at"
+                      size="x-small"
+                      variant="flat"
+                      color="warning"
+                      class="ml-2"
+                    >
+                      Черновик
+                    </v-chip>
+                  </v-list-item-title>
                   <template #append>
                     <v-chip
                       size="x-small"
@@ -111,6 +153,15 @@
                     >
                       {{ difficulty(topic.difficulty).label }}
                     </v-chip>
+                    <v-btn
+                      v-if="writable"
+                      size="x-small"
+                      variant="text"
+                      :icon="topic.published_at ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+                      :title="topic.published_at ? 'Скрыть от учеников' : 'Опубликовать'"
+                      :loading="publishing === `topic-${topic.id}`"
+                      @click="togglePublish('topic', topic)"
+                    />
                     <v-btn
                       size="x-small"
                       variant="text"
@@ -186,7 +237,12 @@
               }}</v-chip>
               <v-icon icon="mdi-arrow-right" color="primary" size="small" />
             </div>
-            <h3 class="text-h6 mb-1">{{ s.name }}</h3>
+            <h3 class="text-h6 mb-1">
+              {{ s.name }}
+              <v-chip v-if="!s.published_at" size="x-small" variant="flat" color="warning">
+                Черновик
+              </v-chip>
+            </h3>
             <p class="text-body-2 text-medium-emphasis mb-0 tabular">
               {{ s.section_count }} разделов · {{ s.topic_count }} тем
             </p>
@@ -312,6 +368,32 @@ const writable = computed(() => can('content:write'));
 
 const selectedId = ref(null);
 const openSection = ref([]);
+// Какая именно карточка сейчас публикуется: «тип-id», чтобы крутилка была
+// только на нажатой кнопке, а не на всех сразу.
+const publishing = ref('');
+
+// Публикация правится тем же PATCH, что и остальные поля. После ответа
+// перезагружаем то, что открыто: снятие раздела с публикации меняет и счётчики
+// предмета, пересчитывать их на клиенте — лишний повод разойтись с сервером.
+async function togglePublish(kind, entity) {
+  const api = {
+    subject: apiUpdateSubject,
+    section: apiUpdateSection,
+    topic: apiUpdateTopic,
+  }[kind];
+
+  publishing.value = `${kind}-${entity.id}`;
+  try {
+    await api(entity.id, { published: !entity.published_at });
+    if (selectedId.value) await loadSubject(selectedId.value);
+    else await loadSubjects();
+    notify(entity.published_at ? 'Скрыто от учеников' : 'Опубликовано');
+  } catch (err) {
+    notify(err.message, 'error');
+  } finally {
+    publishing.value = '';
+  }
+}
 
 const topicTotal = computed(() =>
   sections.value.reduce((sum, section) => sum + section.topics.length, 0),

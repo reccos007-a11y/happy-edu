@@ -48,14 +48,14 @@ async function seed() {
     [user.id],
   );
   const { rows: subj } = await pool.query(
-    "INSERT INTO subjects (name, applies_to) VALUES ('Биология', 'both') RETURNING id",
+    "INSERT INTO subjects (name, applies_to, published_at) VALUES ('Биология', 'both', now()) RETURNING id",
   );
   const { rows: sec } = await pool.query(
-    "INSERT INTO sections (subject_id, title) VALUES ($1, 'Раздел') RETURNING id",
+    "INSERT INTO sections (subject_id, title, published_at) VALUES ($1, 'Раздел', now()) RETURNING id",
     [subj[0].id],
   );
   const { rows: topic } = await pool.query(
-    "INSERT INTO topics (section_id, grade, title) VALUES ($1, 8, 'Клетка') RETURNING id",
+    "INSERT INTO topics (section_id, grade, title, published_at) VALUES ($1, 8, 'Клетка', now()) RETURNING id",
     [sec[0].id],
   );
   const { rows: plan } = await pool.query(

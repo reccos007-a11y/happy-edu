@@ -32,6 +32,9 @@ describe('раннер миграций', () => {
         '005_learning_plans.sql',
         '006_learning_materials.sql',
         '007_testing.sql',
+        '008_app_settings.sql',
+        '009_content_publishing.sql',
+        '010_plan_access.sql',
       ],
     );
   });
@@ -41,7 +44,7 @@ describe('раннер миграций', () => {
     await runMigrations();
 
     const { rows } = await pool.query('SELECT count(*)::int AS c FROM schema_migrations');
-    assert.equal(rows[0].c, 7);
+    assert.equal(rows[0].c, 10);
   });
 
   it('ложится на базу, созданную прежней версией, сохраняя данные', async () => {
