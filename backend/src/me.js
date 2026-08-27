@@ -6,15 +6,13 @@ import express from 'express';
 import { requireAuth } from './auth.js';
 import { pool } from './db.js';
 import { STUDENT_ROLE } from './roles.js';
-import { XP_PER_TOPIC, levelFromXp, streakFromDates, computeBadges } from './gamification.js';
+import { levelFromXp, streakFromDates, computeBadges } from './gamification.js';
+import { getGamificationSettings } from './settings.js';
 import { VISIBLE_TOPICS_CTE } from './visibility.js';
 
 export const meRouter = express.Router();
 
 meRouter.use(requireAuth);
-
-// Порог зачёта тематического теста.
-const PASS_PERCENT = 70;
 
 const normalize = (s) =>
   String(s ?? '')
@@ -149,15 +147,19 @@ meRouter.get('/overview', async (req, res) => {
     const subjectsCompleted = totals.subjects_completed;
     const streakDays = streakFromDates(datesRes.rows.map((r) => r.d));
     const bestScore = Number(bestRes.rows[0].best);
-    const xp = topicsCompleted * XP_PER_TOPIC;
+    const rules = await getGamificationSettings();
+    const xp = topicsCompleted * rules.xpPerTopic;
 
     const stats = {
-      ...levelFromXp(xp),
+      ...levelFromXp(xp, rules.levels),
       topicsCompleted,
       topicsTotal: totals.topics_total,
       subjectsCompleted,
       streakDays,
-      badges: computeBadges({ topicsCompleted, subjectsCompleted, streakDays, bestScore }),
+      badges: computeBadges(
+        { topicsCompleted, subjectsCompleted, streakDays, bestScore },
+        rules.badges,
+      ),
     };
 
     res.json({ profile, stats, resume: resumeRes.rows[0] ?? null });
@@ -334,8 +336,10 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
       results[q.id] = ok;
     }
 
+    // Правила читаем до BEGIN: запрос идёт мимо транзакции, на отдельном соединении.
+    const rules = await getGamificationSettings();
     const percent = Math.round((correct / questions.length) * 100);
-    const passed = percent >= PASS_PERCENT;
+    const passed = percent >= rules.passPercent;
 
     // Позиция плана этого ученика для темы — чтобы привязать попытку и отметить зачёт.
     const { rows: planItem } = await client.query(
@@ -382,9 +386,12 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
       [profile.id],
     );
     const completedAfter = cnt[0].c;
-    const xpAwarded = newlyCompleted ? XP_PER_TOPIC : 0;
-    const levelBefore = levelFromXp((completedAfter - (newlyCompleted ? 1 : 0)) * XP_PER_TOPIC);
-    const levelAfter = levelFromXp(completedAfter * XP_PER_TOPIC);
+    const xpAwarded = newlyCompleted ? rules.xpPerTopic : 0;
+    const levelBefore = levelFromXp(
+      (completedAfter - (newlyCompleted ? 1 : 0)) * rules.xpPerTopic,
+      rules.levels,
+    );
+    const levelAfter = levelFromXp(completedAfter * rules.xpPerTopic, rules.levels);
 
     res.json({
       percent,
