@@ -1,11 +1,15 @@
 // Каталог учебного контента (только чтение): витрина предметов и дерево
 // разделов с темами. Доступен любому вошедшему пользователю; управление
 // контентом (CRUD) появится отдельно, под своим правом.
+//
+// Черновики (published_at IS NULL) видны только персоналу с content:write —
+// один и тот же запрос обслуживает обе роли через булев параметр, см. visibility.js.
 
 import express from 'express';
 import { requireAuth, requirePermission } from './auth.js';
 import { pool } from './db.js';
 import { PERMISSIONS } from './roles.js';
+import { seesDrafts, visibleContent } from './visibility.js';
 
 export const catalogRouter = express.Router();
 
@@ -28,21 +32,28 @@ function textField(value, { max, required, label }) {
 }
 
 // Список предметов со счётчиками разделов и тем — для витрины каталога.
-catalogRouter.get('/subjects', async (_req, res) => {
+// Ученику видны только опубликованные предметы, и счётчики считают тоже
+// опубликованное: иначе он видел бы «12 тем», а открыв предмет — три.
+catalogRouter.get('/subjects', async (req, res) => {
+  const drafts = seesDrafts(req.user);
   try {
     const { rows } = await pool.query(
       `SELECT s.id,
               s.name,
               s.applies_to,
               s.has_levels,
+              s.published_at,
               count(DISTINCT sec.id)::int AS section_count,
               count(t.id)::int            AS topic_count
        FROM subjects s
        LEFT JOIN sections sec ON sec.subject_id = s.id AND sec.deleted_at IS NULL
+                             AND ($1 OR sec.published_at IS NOT NULL)
        LEFT JOIN topics t     ON t.section_id = sec.id AND t.deleted_at IS NULL
-       WHERE s.deleted_at IS NULL
+                             AND ($1 OR t.published_at IS NOT NULL)
+       WHERE s.deleted_at IS NULL AND ($1 OR s.published_at IS NOT NULL)
        GROUP BY s.id
        ORDER BY s.order_index, s.name`,
+      [drafts],
     );
     res.json({ subjects: rows });
   } catch (err) {
@@ -56,12 +67,17 @@ catalogRouter.get('/subjects/:id', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Некорректный id' });
 
+  const drafts = seesDrafts(req.user);
   try {
     const subjectResult = await pool.query(
-      'SELECT id, name, applies_to, has_levels FROM subjects WHERE id = $1 AND deleted_at IS NULL',
-      [id],
+      `SELECT id, name, applies_to, has_levels, published_at
+       FROM subjects
+       WHERE id = $1 AND deleted_at IS NULL AND ($2 OR published_at IS NOT NULL)`,
+      [id, drafts],
     );
     const subject = subjectResult.rows[0];
+    // Черновик для ученика не «запрещён», а не существует: 404 не выдаёт даже
+    // факта, что такой предмет готовится.
     if (!subject) return res.status(404).json({ error: 'Предмет не найден' });
 
     // Разделы и темы одним запросом; собираем дерево в приложении, сохраняя
@@ -70,17 +86,21 @@ catalogRouter.get('/subjects/:id', async (req, res) => {
       `SELECT sec.id           AS section_id,
               sec.title        AS section_title,
               sec.order_index  AS section_order,
+              sec.published_at AS section_published_at,
               t.id             AS topic_id,
               t.title          AS topic_title,
               t.grade          AS topic_grade,
               t.codifier_code  AS topic_codifier,
               t.difficulty     AS topic_difficulty,
-              t.order_index    AS topic_order
+              t.order_index    AS topic_order,
+              t.published_at   AS topic_published_at
        FROM sections sec
        LEFT JOIN topics t ON t.section_id = sec.id AND t.deleted_at IS NULL
+                         AND ($2 OR t.published_at IS NOT NULL)
        WHERE sec.subject_id = $1 AND sec.deleted_at IS NULL
+         AND ($2 OR sec.published_at IS NOT NULL)
        ORDER BY sec.order_index, sec.id, t.order_index, t.id`,
-      [id],
+      [id, drafts],
     );
 
     const sections = [];
@@ -88,7 +108,12 @@ catalogRouter.get('/subjects/:id', async (req, res) => {
     for (const r of rows) {
       let section = byId.get(r.section_id);
       if (!section) {
-        section = { id: r.section_id, title: r.section_title, topics: [] };
+        section = {
+          id: r.section_id,
+          title: r.section_title,
+          published_at: r.section_published_at,
+          topics: [],
+        };
         byId.set(r.section_id, section);
         sections.push(section);
       }
@@ -99,6 +124,7 @@ catalogRouter.get('/subjects/:id', async (req, res) => {
           grade: r.topic_grade,
           codifier_code: r.topic_codifier,
           difficulty: r.topic_difficulty,
+          published_at: r.topic_published_at,
         });
       }
     }
@@ -130,10 +156,11 @@ catalogRouter.post('/subjects', canWrite, async (req, res) => {
   const order_index = Number.isInteger(req.body?.order_index) ? req.body.order_index : 0;
 
   try {
+    // published_at не задаём: новый контент — черновик, пока его не открыли явно.
     const { rows } = await pool.query(
       `INSERT INTO subjects (name, applies_to, has_levels, order_index)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, name, applies_to, has_levels, order_index`,
+       RETURNING id, name, applies_to, has_levels, order_index, published_at`,
       [name.value, applies_to, has_levels, order_index],
     );
     res.status(201).json({ subject: rows[0] });
@@ -173,6 +200,11 @@ catalogRouter.patch('/subjects/:id', canWrite, async (req, res) => {
     vals.push(req.body.order_index);
     sets.push(`order_index = $${vals.length}`);
   }
+  // Публикация меняется тем же PATCH: снятие обнуляет отметку времени, повторная
+  // публикация ставит текущую — «когда открыли» всегда про последний раз.
+  if ('published' in (req.body ?? {})) {
+    sets.push(req.body.published ? 'published_at = now()' : 'published_at = NULL');
+  }
   if (sets.length === 0) return res.status(400).json({ error: 'Нет полей для изменения' });
 
   vals.push(id);
@@ -180,7 +212,7 @@ catalogRouter.patch('/subjects/:id', canWrite, async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE subjects SET ${sets.join(', ')}, updated_at = now()
        WHERE id = $${vals.length} AND deleted_at IS NULL
-       RETURNING id, name, applies_to, has_levels, order_index`,
+       RETURNING id, name, applies_to, has_levels, order_index, published_at`,
       vals,
     );
     if (!rows[0]) return res.status(404).json({ error: 'Предмет не найден' });
@@ -249,7 +281,7 @@ catalogRouter.post('/sections', canWrite, async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO sections (subject_id, title, order_index)
-       VALUES ($1, $2, $3) RETURNING id, subject_id, title, order_index`,
+       VALUES ($1, $2, $3) RETURNING id, subject_id, title, order_index, published_at`,
       [subjectId, title.value, order_index],
     );
     res.status(201).json({ section: rows[0] });
@@ -281,6 +313,9 @@ catalogRouter.patch('/sections/:id', canWrite, async (req, res) => {
     vals.push(req.body.order_index);
     sets.push(`order_index = $${vals.length}`);
   }
+  if ('published' in (req.body ?? {})) {
+    sets.push(req.body.published ? 'published_at = now()' : 'published_at = NULL');
+  }
   if (sets.length === 0) return res.status(400).json({ error: 'Нет полей для изменения' });
 
   vals.push(id);
@@ -288,7 +323,7 @@ catalogRouter.patch('/sections/:id', canWrite, async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE sections SET ${sets.join(', ')}, updated_at = now()
        WHERE id = $${vals.length} AND deleted_at IS NULL
-       RETURNING id, subject_id, title, order_index`,
+       RETURNING id, subject_id, title, order_index, published_at`,
       vals,
     );
     if (!rows[0]) return res.status(404).json({ error: 'Раздел не найден' });
@@ -362,7 +397,7 @@ catalogRouter.post('/topics', canWrite, async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO topics (section_id, grade, title, order_index, codifier_code, difficulty)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, section_id, grade, title, order_index, codifier_code, difficulty`,
+       RETURNING id, section_id, grade, title, order_index, codifier_code, difficulty, published_at`,
       [sectionId, grade, title.value, order_index, codifier.value ?? null, difficulty],
     );
     res.status(201).json({ topic: rows[0] });
@@ -410,6 +445,9 @@ catalogRouter.patch('/topics/:id', canWrite, async (req, res) => {
     vals.push(body.order_index);
     sets.push(`order_index = $${vals.length}`);
   }
+  if ('published' in body) {
+    sets.push(body.published ? 'published_at = now()' : 'published_at = NULL');
+  }
   if (sets.length === 0) return res.status(400).json({ error: 'Нет полей для изменения' });
 
   vals.push(id);
@@ -417,7 +455,7 @@ catalogRouter.patch('/topics/:id', canWrite, async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE topics SET ${sets.join(', ')}, updated_at = now()
        WHERE id = $${vals.length} AND deleted_at IS NULL
-       RETURNING id, section_id, grade, title, order_index, codifier_code, difficulty`,
+       RETURNING id, section_id, grade, title, order_index, codifier_code, difficulty, published_at`,
       vals,
     );
     if (!rows[0]) return res.status(404).json({ error: 'Тема не найдена' });
@@ -454,7 +492,21 @@ const MATERIAL_COLUMNS = 'id, topic_id, type, title, content, file_url, order_in
 catalogRouter.get('/topics/:topicId/materials', async (req, res) => {
   const topicId = parseId(req.params.topicId);
   if (topicId === null) return res.status(400).json({ error: 'Некорректный id' });
+  const drafts = seesDrafts(req.user);
   try {
+    // Материалы неопубликованной темы недоступны ученику, даже если он знает её id:
+    // прямая ссылка не должна обходить публикацию.
+    const visible = await pool.query(
+      `SELECT t.id
+       FROM topics t
+       JOIN sections sec ON sec.id = t.section_id AND sec.deleted_at IS NULL
+       JOIN subjects s   ON s.id = sec.subject_id AND s.deleted_at IS NULL
+       WHERE t.id = $1 AND t.deleted_at IS NULL
+         AND ${visibleContent({ topic: 't', section: 'sec', subject: 's' }, '$2')}`,
+      [topicId, drafts],
+    );
+    if (!visible.rows[0]) return res.status(404).json({ error: 'Тема не найдена' });
+
     const { rows } = await pool.query(
       `SELECT ${MATERIAL_COLUMNS} FROM learning_materials
        WHERE topic_id = $1 AND deleted_at IS NULL

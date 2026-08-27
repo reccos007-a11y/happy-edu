@@ -8,6 +8,7 @@ import { pool } from './db.js';
 import { STUDENT_ROLE } from './roles.js';
 import { levelFromXp, streakFromDates, computeBadges } from './gamification.js';
 import { getGamificationSettings } from './settings.js';
+import { VISIBLE_TOPICS_CTE } from './visibility.js';
 
 export const meRouter = express.Router();
 
@@ -33,15 +34,20 @@ async function ownProfile(userId) {
 // Последовательное открытие тем: НАЧАТЬ (не начатую) тему нельзя, пока предыдущая
 // в плане не зачтена. Уже начатые (в процессе / на повторение) и зачтённые темы
 // остаются доступными — иначе провал теста запер бы ученика без права пересдачи.
+//
+// Нумерация идёт только по видимым темам: снятая с публикации тема выпадает из
+// цепочки, а не запирает следующую намертво — иначе скрытие материала посреди
+// плана остановило бы всех, кто до него не дошёл.
 async function topicLocked(profileId, topicId) {
   const { rows } = await pool.query(
-    `WITH ord AS (
+    `WITH ${VISIBLE_TOPICS_CTE},
+     ord AS (
        SELECT i.topic_id, i.status,
               lag(i.status) OVER (PARTITION BY i.plan_id ORDER BY i.order_index, i.id) AS prev,
               row_number() OVER (PARTITION BY i.plan_id ORDER BY i.order_index, i.id) AS rn
        FROM learning_plan_items i
        JOIN learning_plans p ON p.id = i.plan_id
-       JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+       JOIN visible_topics vt ON vt.id = i.topic_id
        WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
      )
      SELECT status, prev, rn FROM ord WHERE topic_id = $2 LIMIT 1`,
@@ -50,6 +56,17 @@ async function topicLocked(profileId, topicId) {
   const r = rows[0];
   if (!r) return false; // темы нет в планах — гейт не применяем
   return r.status === 'not_started' && Number(r.rn) > 1 && r.prev !== 'completed';
+}
+
+// Тема доступна ученику, только пока опубликована вся её цепочка. Проверяем
+// отдельно от гейта последовательности: прямая ссылка на тест не должна
+// обходить снятие с публикации.
+async function topicVisible(topicId) {
+  const { rows } = await pool.query(
+    `WITH ${VISIBLE_TOPICS_CTE} SELECT id FROM visible_topics WHERE id = $1`,
+    [topicId],
+  );
+  return Boolean(rows[0]);
 }
 
 meRouter.get('/profile', async (req, res) => {
@@ -74,13 +91,14 @@ meRouter.get('/overview', async (req, res) => {
     const [totalsRes, datesRes, bestRes, resumeRes] = await Promise.all([
       // Итоги по всем активным планам ученика + число полностью пройденных предметов.
       pool.query(
-        `WITH plan_stats AS (
+        `WITH ${VISIBLE_TOPICS_CTE},
+         plan_stats AS (
            SELECT p.id,
-                  count(t.id)::int AS tot,
-                  count(t.id) FILTER (WHERE i.status = 'completed')::int AS done
+                  count(vt.id)::int AS tot,
+                  count(vt.id) FILTER (WHERE i.status = 'completed')::int AS done
            FROM learning_plans p
            JOIN learning_plan_items i ON i.plan_id = p.id
-           JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+           JOIN visible_topics vt ON vt.id = i.topic_id
            WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
            GROUP BY p.id
          )
@@ -105,12 +123,14 @@ meRouter.get('/overview', async (req, res) => {
       // «Продолжить»: первая незакрытая тема по порядку (уже начатые — вперёд).
       // Первая незакрытая в плане всегда доступна: всё до неё уже зачтено.
       pool.query(
-        `SELECT p.id AS plan_id, s.name AS subject_name,
+        `WITH ${VISIBLE_TOPICS_CTE}
+         SELECT p.id AS plan_id, s.name AS subject_name,
                 t.id AS topic_id, t.title AS topic_title, sec.title AS section_title,
                 i.status
          FROM learning_plans p
          JOIN learning_plan_items i ON i.plan_id = p.id
-         JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+         JOIN visible_topics vt ON vt.id = i.topic_id
+         JOIN topics t ON t.id = vt.id
          JOIN sections sec ON sec.id = t.section_id
          JOIN subjects s ON s.id = p.subject_id
          WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
@@ -155,14 +175,15 @@ meRouter.get('/plans', async (req, res) => {
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
 
     const { rows } = await pool.query(
-      `SELECT p.id, p.subject_id, s.name AS subject_name, p.exam_type, p.status,
+      `WITH ${VISIBLE_TOPICS_CTE}
+       SELECT p.id, p.subject_id, s.name AS subject_name, p.exam_type, p.status,
               p.start_date, p.target_date,
-              count(ti.id)::int AS topics_total,
-              count(ti.id) FILTER (WHERE i.status = 'completed')::int AS topics_done
+              count(vt.id)::int AS topics_total,
+              count(vt.id) FILTER (WHERE i.status = 'completed')::int AS topics_done
        FROM learning_plans p
        JOIN subjects s ON s.id = p.subject_id
        LEFT JOIN learning_plan_items i ON i.plan_id = p.id
-       LEFT JOIN topics ti ON ti.id = i.topic_id AND ti.deleted_at IS NULL
+       LEFT JOIN visible_topics vt ON vt.id = i.topic_id
        WHERE p.student_id = $1 AND p.deleted_at IS NULL AND p.status <> 'archived'
        GROUP BY p.id, s.name
        ORDER BY p.created_at`,
@@ -194,7 +215,8 @@ meRouter.get('/plans/:planId', async (req, res) => {
     if (!plan) return res.status(404).json({ error: 'План не найден' });
 
     const { rows: items } = await pool.query(
-      `SELECT i.id, i.status, i.order_index,
+      `WITH ${VISIBLE_TOPICS_CTE}
+       SELECT i.id, i.status, i.order_index,
               t.id AS topic_id, t.title AS topic_title, t.codifier_code, t.difficulty,
               sec.title AS section_title,
               -- Тема заблокирована, если её ещё не начинали, а предыдущая в плане
@@ -206,7 +228,8 @@ meRouter.get('/plans/:planId', async (req, res) => {
                 ELSE true
               END AS locked
        FROM learning_plan_items i
-       JOIN topics t ON t.id = i.topic_id AND t.deleted_at IS NULL
+       JOIN visible_topics vt ON vt.id = i.topic_id
+       JOIN topics t ON t.id = vt.id
        JOIN sections sec ON sec.id = t.section_id
        WHERE i.plan_id = $1
        WINDOW w AS (ORDER BY i.order_index, i.id)
@@ -227,6 +250,8 @@ meRouter.get('/topics/:topicId/test', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    if (!(await topicVisible(topicId))) return res.status(404).json({ error: 'Тема не найдена' });
 
     if (await topicLocked(profile.id, topicId)) {
       return res.status(403).json({ error: 'Сначала завершите предыдущую тему' });
@@ -267,6 +292,8 @@ meRouter.post('/topics/:topicId/test', async (req, res) => {
   try {
     const profile = await ownProfile(req.user.id);
     if (!profile) return res.status(404).json({ error: 'Профиль ученика не найден' });
+
+    if (!(await topicVisible(topicId))) return res.status(404).json({ error: 'Тема не найдена' });
 
     if (await topicLocked(profile.id, topicId)) {
       return res.status(403).json({ error: 'Сначала завершите предыдущую тему' });

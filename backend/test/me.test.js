@@ -42,17 +42,20 @@ async function seedStudentWithPlan(email) {
     [user.id],
   );
   // Имя предмета уникально на ученика: у subjects действует UNIQUE по названию.
+  // Публикуем сразу: кабинет ученика показывает только опубликованный контент,
+  // а здесь проверяется не публикация, а сам кабинет.
   const { rows: subj } = await pool.query(
-    "INSERT INTO subjects (name, applies_to) VALUES ($1, 'oge') RETURNING id",
+    "INSERT INTO subjects (name, applies_to, published_at) VALUES ($1, 'oge', now()) RETURNING id",
     [`Обществознание (${email})`],
   );
   const { rows: sec } = await pool.query(
-    "INSERT INTO sections (subject_id, title, order_index) VALUES ($1, 'Раздел', 0) RETURNING id",
+    `INSERT INTO sections (subject_id, title, order_index, published_at)
+     VALUES ($1, 'Раздел', 0, now()) RETURNING id`,
     [subj[0].id],
   );
   const { rows: topics } = await pool.query(
-    `INSERT INTO topics (section_id, grade, title, order_index)
-     VALUES ($1, 9, 'Тема 1', 0), ($1, 9, 'Тема 2', 1) RETURNING id`,
+    `INSERT INTO topics (section_id, grade, title, order_index, published_at)
+     VALUES ($1, 9, 'Тема 1', 0, now()), ($1, 9, 'Тема 2', 1, now()) RETURNING id`,
     [sec[0].id],
   );
   const { rows: plan } = await pool.query(
